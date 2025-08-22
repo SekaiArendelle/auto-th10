@@ -706,6 +706,137 @@ static PyTypeObject PyResourceType = {
     .tp_base = &PyThObjectType,
 };
 
+static PyObject* get_player(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto player = ::auto_th10::get_player(reinterpret_cast<HANDLE>(handle));
+    PyObject* mod = PyImport_ImportModule("auto_th10");
+    if (!mod) return nullptr;
+    PyObject* cls = PyObject_GetAttrString(mod, "Player");
+    Py_DECREF(mod);
+    if (!cls) return nullptr;
+    PyObject* obj = PyObject_CallFunction(cls, "ff", player.x, player.y);
+    Py_DECREF(cls);
+    return obj;
+}
+
+static PyObject* get_enemies(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto enemies = ::auto_th10::get_enemies(reinterpret_cast<HANDLE>(handle));
+    PyObject* list = PyList_New(enemies.size());
+    if (!list) return nullptr;
+    PyObject* mod = PyImport_ImportModule("auto_th10");
+    if (!mod) return nullptr;
+    PyObject* cls = PyObject_GetAttrString(mod, "Enemy");
+    Py_DECREF(mod);
+    if (!cls) return nullptr;
+    for (size_t i = 0; i < enemies.size(); i++) {
+        auto const& e = enemies[i];
+        PyObject* obj = PyObject_CallFunction(cls, "ffff", e.x, e.y, e.width, e.height);
+        PyList_SET_ITEM(list, i, obj); // steals ref
+    }
+    Py_DECREF(cls);
+    return list;
+}
+
+static PyObject* get_enemy_bullets(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto bullets = ::auto_th10::get_enemy_bullets(reinterpret_cast<HANDLE>(handle));
+    PyObject* list = PyList_New(bullets.size());
+    if (!list) return nullptr;
+    PyObject* mod = PyImport_ImportModule("auto_th10");
+    if (!mod) return nullptr;
+    PyObject* cls = PyObject_GetAttrString(mod, "EnemyBullet");
+    Py_DECREF(mod);
+    if (!cls) return nullptr;
+    for (size_t i = 0; i < bullets.size(); i++) {
+        auto const& b = bullets[i];
+        PyObject* obj = PyObject_CallFunction(cls, "ffffff", b.x, b.y, b.width, b.height, b.dx, b.dy);
+        PyList_SET_ITEM(list, i, obj);
+    }
+    Py_DECREF(cls);
+    return list;
+}
+
+static PyObject* get_enemy_lasers(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto lasers = ::auto_th10::get_enemy_lasers(reinterpret_cast<HANDLE>(handle));
+    PyObject* list = PyList_New(lasers.size());
+    if (!list) return nullptr;
+    PyObject* mod = PyImport_ImportModule("auto_th10");
+    if (!mod) return nullptr;
+    PyObject* cls = PyObject_GetAttrString(mod, "EnemyLaser");
+    Py_DECREF(mod);
+    if (!cls) return nullptr;
+    for (size_t i = 0; i < lasers.size(); i++) {
+        auto const& l = lasers[i];
+        PyObject* obj = PyObject_CallFunction(cls, "fffff", l.x, l.y, l.width, l.height, l.radian);
+        PyList_SET_ITEM(list, i, obj);
+    }
+    Py_DECREF(cls);
+    return list;
+}
+
+static PyObject* get_resources(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto res = ::auto_th10::get_resources(reinterpret_cast<HANDLE>(handle));
+    PyObject* list = PyList_New(res.size());
+    if (!list) return nullptr;
+    PyObject* mod = PyImport_ImportModule("auto_th10");
+    if (!mod) return nullptr;
+    PyObject* cls = PyObject_GetAttrString(mod, "Resource");
+    Py_DECREF(mod);
+    if (!cls) return nullptr;
+    for (size_t i = 0; i < res.size(); i++) {
+        auto const& r = res[i];
+        PyObject* obj = PyObject_CallFunction(cls, "ff", r.x, r.y);
+        PyList_SET_ITEM(list, i, obj);
+    }
+    Py_DECREF(cls);
+    return list;
+}
+
+static PyObject* get_score(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto score = ::auto_th10::get_score(reinterpret_cast<HANDLE>(handle));
+    return PyLong_FromUnsignedLong(score);
+}
+
+static PyObject* get_power(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto power = ::auto_th10::get_power(reinterpret_cast<HANDLE>(handle));
+    return PyLong_FromUnsignedLong(power);
+}
+
+static PyObject* get_hp(PyObject*, PyObject* args) noexcept {
+    unsigned long long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle)) {
+        return nullptr;
+    }
+    auto hp = ::auto_th10::get_hp(reinterpret_cast<HANDLE>(handle));
+    return PyLong_FromLong(hp);
+}
+
 /* ===== Module boilerplate ===== */
 
 static PyMethodDef auto_th10_methods[] = {
@@ -714,6 +845,14 @@ static PyMethodDef auto_th10_methods[] = {
     {"get_process_handle", (PyCFunction)get_process_handle, METH_VARARGS, "Get process handle from PID"},
     {"is_game_over", (PyCFunction)is_game_over, METH_VARARGS, "Check if the game is over (hp == -1)"},
     {"set_as_foreground", (PyCFunction)set_as_foreground, METH_VARARGS, "Set the game window as foreground"},
+    {"get_player", get_player, METH_VARARGS, "Get player object"},
+    {"get_enemies", get_enemies, METH_VARARGS, "Get enemies list"},
+    {"get_enemy_bullets", get_enemy_bullets, METH_VARARGS, "Get enemy bullets list"},
+    {"get_enemy_lasers", get_enemy_lasers, METH_VARARGS, "Get enemy lasers list"},
+    {"get_resources", get_resources, METH_VARARGS, "Get resources list"},
+    {"get_score", get_score, METH_VARARGS, "Get current score"},
+    {"get_power", get_power, METH_VARARGS, "Get current power"},
+    {"get_hp", get_hp, METH_VARARGS, "Get player hp"},
     {nullptr, nullptr, 0, nullptr}};
 
 

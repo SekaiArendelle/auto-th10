@@ -88,9 +88,9 @@ target("auto_th10", function ()
         end
     end) -- on_config
 
-    -- after_build(function (target)
-    --     local lib_plat_cpy_dir = os.iorunv(python, {"after_build.py"})
-    --     os.cp(target:targetfile(), lib_plat_cpy_dir)
-    --     print("copying " .. target:targetfile() .. " to " .. lib_plat_cpy_dir)
-    -- end) -- after_build
+    after_build(function (target)
+        local target_dir = os.projectdir() .. "/../auto_th10"
+        os.cp(target:targetfile(), target_dir)
+        print("copying " .. target:targetfile() .. " to " .. target_dir)
+    end) -- after_build
 end) -- target
