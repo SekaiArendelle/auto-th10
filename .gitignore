@@ -1,0 +1,51 @@
+build/
+venv/
+.vscode/
+.vs/
+dist/
+__pycache__/
+*.egg-info/
+runs/
+
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+*.pyd
+*.bmp
+*.jpg
+*.png
+*.7z
+*.zip
+*.tar.*
+*.ignore*
+*.pt
