@@ -52,7 +52,7 @@ inline DWORD get_pid() noexcept {
         [[indeterminate]]
 #endif
         ;
-    if (::GetWindowThreadProcessId(get_hwnd(), ::std::addressof(pid)) == 0) [[unlikely]] {
+    if (::GetWindowThreadProcessId(::auto_th10::get_hwnd(), ::std::addressof(pid)) == 0) [[unlikely]] {
         ::std::fprintf(stderr, "auto_th10::BindError: get_pid failed\n");
         ::std::fflush(stderr);
         ::exception::terminate();
@@ -64,7 +64,7 @@ inline DWORD get_pid() noexcept {
  * @brief Get TH10 process handle
  */
 inline HANDLE get_process_handle() noexcept {
-    return ::OpenProcess(PROCESS_VM_READ, true, get_pid());
+    return ::OpenProcess(PROCESS_VM_READ, true, ::auto_th10::get_pid());
 }
 
 } // namespace auto_th10

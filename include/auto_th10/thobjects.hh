@@ -7,12 +7,12 @@ namespace auto_th10 {
 
 class ThObject {
 public:
-    ::auto_th10::float32_type x_;
-    ::auto_th10::float32_type y_;
+    ::auto_th10::float32_type x;
+    ::auto_th10::float32_type y;
 
-    constexpr ThObject(float32_type x, float32_type y) noexcept
-        : x_{x},
-          y_{y} {
+    constexpr ThObject(float32_type x_, float32_type y_) noexcept
+        : x{x_},
+          y{y_} {
     }
 
     constexpr ThObject(::auto_th10::ThObject const&) noexcept = default;
@@ -22,11 +22,11 @@ public:
     constexpr ::auto_th10::ThObject& operator=(::auto_th10::ThObject&&) noexcept = default;
 
     constexpr auto&& get_x(this auto&& self) noexcept {
-        return ::std::forward_like<decltype(self)>(self.x_);
+        return ::std::forward_like<decltype(self)>(self.x);
     }
 
     constexpr auto&& get_y(this auto&& self) noexcept {
-        return ::std::forward_like<decltype(self)>(self.y_);
+        return ::std::forward_like<decltype(self)>(self.y);
     }
 
     constexpr auto&& get_width(this auto&& self) noexcept
@@ -77,13 +77,13 @@ public:
 };
 
 class EnemyBullet : public ::auto_th10::ThObject {
+public:
     // dx, dy : bullet's derection is `dy / dx`
     ::auto_th10::float32_type width;
     ::auto_th10::float32_type height;
     ::auto_th10::float32_type dx;
     ::auto_th10::float32_type dy;
 
-public:
     constexpr EnemyBullet(::auto_th10::float32_type x, ::auto_th10::float32_type y, ::auto_th10::float32_type width,
                           ::auto_th10::float32_type height, ::auto_th10::float32_type dx,
                           ::auto_th10::float32_type dy) noexcept
