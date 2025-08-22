@@ -49,3 +49,4 @@ runs/
 *.tar.*
 *.ignore*
 *.pt
+.xmake/

@@ -90,10 +90,10 @@ inline auto get_enemy_bullets(HANDLE process) noexcept {
     if (base == 0) [[unlikely]] {
         ::auto_th10::details::game_not_start();
     }
-    ::std::uint32_t ebx = base + 0x60;
+    ::std::uint32_t ebx{base + 0x60};
     ::fast_io::vector<::auto_th10::EnemyBullet> res{};
     for (int _{}; _ < 2000; ++_) {
-        ::std::uint32_t edi = ebx + 0x400;
+        ::std::uint32_t edi{ebx + 0x400};
         ::std::uint32_t bp{};
         ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(edi + 0x46), &bp, 4, &nbr);
         bp &= 0x0000FFFF;
@@ -198,10 +198,13 @@ inline auto get_power(HANDLE process) noexcept {
     return power;
 }
 
-/* Get Player's HP
+/**
+ * @brief Get Player's HP
+ * @returns 0: game not start or the minimal hp
+ * @returns -1: game over
  */
 inline auto get_hp(HANDLE process) noexcept {
-    ::std::uint16_t hp;
+    ::std::int16_t hp;
     ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(0x00474C70), &hp, sizeof(hp), nullptr);
     return hp;
 }
