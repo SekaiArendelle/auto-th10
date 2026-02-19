@@ -78,11 +78,11 @@ static ::PyObject* is_game_over([[maybe_unused]] ::PyObject*, ::PyObject* args) 
     bool over = ::auto_th10::is_game_over(hproc);
     if (over) {
         Py_RETURN_TRUE;
-    } else {
+    }
+    else {
         Py_RETURN_FALSE;
     }
 }
-
 
 /** Bring window to foreground. */
 static ::PyObject* set_as_foreground([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
@@ -214,8 +214,7 @@ static PyGetSetDef ThObject_getset[] = {
     {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyThObjectType = {
-    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "auto_th10.ThObject",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.ThObject",
     .tp_basicsize = sizeof(PyThObject),
     .tp_itemsize = 0,
     .tp_dealloc = reinterpret_cast<destructor>(PyThObject_dealloc),
@@ -267,8 +266,7 @@ static ::PyObject* PyPlayer_new(PyTypeObject* type, ::PyObject* args, ::PyObject
 }
 
 static PyTypeObject PyPlayerType = {
-    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "auto_th10.Player",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Player",
     .tp_basicsize = sizeof(PyPlayer),
     .tp_itemsize = 0,
     .tp_dealloc = reinterpret_cast<destructor>(PyPlayer_dealloc),
@@ -361,8 +359,7 @@ static PyGetSetDef Enemy_getset[] = {{"width", reinterpret_cast<getter>(Enemy_ge
                                      {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyEnemyType = {
-    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "auto_th10.Enemy",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Enemy",
     .tp_basicsize = sizeof(PyEnemy),
     .tp_itemsize = 0,
     .tp_dealloc = reinterpret_cast<destructor>(PyEnemy_dealloc),
@@ -498,8 +495,7 @@ static PyGetSetDef EnemyBullet_getset[] = {
     {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyEnemyBulletType = {
-    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "auto_th10.EnemyBullet",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.EnemyBullet",
     .tp_basicsize = sizeof(PyEnemyBullet),
     .tp_itemsize = 0,
     .tp_dealloc = reinterpret_cast<destructor>(PyEnemyBullet_dealloc),
@@ -615,8 +611,7 @@ static PyGetSetDef EnemyLaser_getset[] = {
     {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyEnemyLaserType = {
-    .ob_base= PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "auto_th10.EnemyLaser",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.EnemyLaser",
     .tp_basicsize = sizeof(PyEnemyLaser),
     .tp_itemsize = 0,
     .tp_dealloc = reinterpret_cast<destructor>(PyEnemyLaser_dealloc),
@@ -656,7 +651,7 @@ static ::PyObject* PyResource_new(PyTypeObject* type, ::PyObject* args, ::PyObje
     if (self == nullptr)
         return nullptr;
 
-    self->cpp_res = new(::std::nothrow) ::auto_th10::Resource{x, y};
+    self->cpp_res = new (::std::nothrow)::auto_th10::Resource{x, y};
     if (self->cpp_res == nullptr) {
         Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
         PyErr_NoMemory();
@@ -667,8 +662,7 @@ static ::PyObject* PyResource_new(PyTypeObject* type, ::PyObject* args, ::PyObje
 }
 
 static PyTypeObject PyResourceType = {
-    .ob_base= PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "auto_th10.Resource",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Resource",
     .tp_basicsize = sizeof(PyResource),
     .tp_itemsize = 0,
     .tp_dealloc = reinterpret_cast<destructor>(PyResource_dealloc),
@@ -685,10 +679,14 @@ static ::PyObject* get_player([[maybe_unused]] ::PyObject*, ::PyObject* args) no
     }
     auto player = ::auto_th10::get_player(reinterpret_cast<HANDLE>(handle));
     ::PyObject* mod = PyImport_ImportModule("auto_th10");
-    if (!mod) return nullptr;
+    if (!mod) {
+        return nullptr;
+    }
     ::PyObject* cls = ::PyObject_GetAttrString(mod, "Player");
     Py_DECREF(mod);
-    if (!cls) return nullptr;
+    if (!cls) {
+        return nullptr;
+    }
     ::PyObject* obj = ::PyObject_CallFunction(cls, "ff", player.x, player.y);
     Py_DECREF(cls);
     return obj;
@@ -701,12 +699,18 @@ static ::PyObject* get_enemies([[maybe_unused]] ::PyObject*, ::PyObject* args) n
     }
     auto enemies = ::auto_th10::get_enemies(reinterpret_cast<HANDLE>(handle));
     ::PyObject* list = PyList_New(enemies.size());
-    if (!list) return nullptr;
+    if (!list) {
+        return nullptr;
+    }
     ::PyObject* mod = PyImport_ImportModule("auto_th10");
-    if (!mod) return nullptr;
+    if (!mod) {
+        return nullptr;
+    }
     ::PyObject* cls = ::PyObject_GetAttrString(mod, "Enemy");
     Py_DECREF(mod);
-    if (!cls) return nullptr;
+    if (!cls) {
+        return nullptr;
+    }
     for (size_t i = 0; i < enemies.size(); i++) {
         auto const& e = enemies[i];
         ::PyObject* obj = ::PyObject_CallFunction(cls, "ffff", e.x, e.y, e.width, e.height);
@@ -723,12 +727,18 @@ static ::PyObject* get_enemy_bullets([[maybe_unused]] ::PyObject*, ::PyObject* a
     }
     auto bullets = ::auto_th10::get_enemy_bullets(reinterpret_cast<HANDLE>(handle));
     ::PyObject* list = PyList_New(bullets.size());
-    if (!list) return nullptr;
+    if (!list) {
+        return nullptr;
+    }
     ::PyObject* mod = PyImport_ImportModule("auto_th10");
-    if (!mod) return nullptr;
+    if (!mod) {
+        return nullptr;
+    }
     ::PyObject* cls = ::PyObject_GetAttrString(mod, "EnemyBullet");
     Py_DECREF(mod);
-    if (!cls) return nullptr;
+    if (!cls) {
+        return nullptr;
+    }
     for (size_t i = 0; i < bullets.size(); i++) {
         auto const& b = bullets[i];
         ::PyObject* obj = ::PyObject_CallFunction(cls, "ffffff", b.x, b.y, b.width, b.height, b.dx, b.dy);
@@ -745,12 +755,18 @@ static ::PyObject* get_enemy_lasers([[maybe_unused]] ::PyObject*, ::PyObject* ar
     }
     auto lasers = ::auto_th10::get_enemy_lasers(reinterpret_cast<HANDLE>(handle));
     ::PyObject* list = PyList_New(lasers.size());
-    if (!list) return nullptr;
+    if (!list) {
+        return nullptr;
+    }
     ::PyObject* mod = PyImport_ImportModule("auto_th10");
-    if (!mod) return nullptr;
+    if (!mod) {
+        return nullptr;
+    }
     ::PyObject* cls = ::PyObject_GetAttrString(mod, "EnemyLaser");
     Py_DECREF(mod);
-    if (!cls) return nullptr;
+    if (!cls) {
+        return nullptr;
+    }
     for (size_t i = 0; i < lasers.size(); i++) {
         auto const& l = lasers[i];
         ::PyObject* obj = ::PyObject_CallFunction(cls, "fffff", l.x, l.y, l.width, l.height, l.radian);
@@ -767,12 +783,18 @@ static ::PyObject* get_resources([[maybe_unused]] ::PyObject*, ::PyObject* args)
     }
     auto res = ::auto_th10::get_resources(reinterpret_cast<HANDLE>(handle));
     ::PyObject* list = PyList_New(res.size());
-    if (!list) return nullptr;
+    if (!list) {
+        return nullptr;
+    }
     ::PyObject* mod = PyImport_ImportModule("auto_th10");
-    if (!mod) return nullptr;
+    if (!mod) {
+        return nullptr;
+    }
     ::PyObject* cls = ::PyObject_GetAttrString(mod, "Resource");
     Py_DECREF(mod);
-    if (!cls) return nullptr;
+    if (!cls) {
+        return nullptr;
+    }
     for (size_t i = 0; i < res.size(); i++) {
         auto const& r = res[i];
         ::PyObject* obj = ::PyObject_CallFunction(cls, "ff", r.x, r.y);
@@ -826,7 +848,6 @@ static PyMethodDef auto_th10_methods[] = {
     {"get_power", get_power, METH_VARARGS, "Get current power"},
     {"get_hp", get_hp, METH_VARARGS, "Get player hp"},
     {nullptr, nullptr, 0, nullptr}};
-
 
 static struct PyModuleDef auto_th10_module = {PyModuleDef_HEAD_INIT,
                                               "auto_th10",
