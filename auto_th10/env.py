@@ -1,3 +1,4 @@
+import os
 import time
 import pynput
 import auto_th10
@@ -36,15 +37,20 @@ class Th10Env:
     def reset(self) -> None:
         auto_th10.set_as_foreground(self.hwnd)
         if auto_th10.is_game_over(self.process):
-            self.controller.press(pynput.keyboard.Key.enter)
-            time.sleep(0.05)
-            self.controller.release(pynput.keyboard.Key.enter)
-            self.controller.press(pynput.keyboard.Key.down)
-            time.sleep(0.5)
-            self.controller.release(pynput.keyboard.Key.down)
-            self.controller.press(pynput.keyboard.Key.enter)
-            time.sleep(0.05)
-            self.controller.release(pynput.keyboard.Key.enter)
+            os.abort()
+            # TODO
+            # Th10 has two types of interface after game over?
+            # 1. Select ...
+            # 2. Whether store this history and select ...
+            # self.controller.press(pynput.keyboard.Key.enter)
+            # time.sleep(0.05)
+            # self.controller.release(pynput.keyboard.Key.enter)
+            # self.controller.press(pynput.keyboard.Key.down)
+            # time.sleep(0.5)
+            # self.controller.release(pynput.keyboard.Key.down)
+            # self.controller.press(pynput.keyboard.Key.enter)
+            # time.sleep(0.05)
+            # self.controller.release(pynput.keyboard.Key.enter)
         else:
             self.controller.press(pynput.keyboard.Key.esc)
             time.sleep(0.05)

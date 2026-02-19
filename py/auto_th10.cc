@@ -33,73 +33,6 @@
 #include <auto_th10/process.hh>
 #include <auto_th10/control.hh>
 
-namespace {
-/** Check if the game is over (hp == -1). */
-PyObject* is_game_over(PyObject*, PyObject* args) noexcept {
-    PyObject* hproc_obj = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &hproc_obj)) {
-        return nullptr;
-    }
-    HANDLE hproc = reinterpret_cast<HANDLE>(PyLong_AsVoidPtr(hproc_obj));
-    if (PyErr_Occurred())
-        return nullptr;
-
-    bool over = ::auto_th10::is_game_over(hproc);
-    if (over) {
-        Py_RETURN_TRUE;
-    } else {
-        Py_RETURN_FALSE;
-    }
-}
-
-
-/** Bring window to foreground. */
-PyObject* set_as_foreground(PyObject*, PyObject* args) noexcept {
-    PyObject* hwnd_obj = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
-        return nullptr;
-    }
-    HWND hwnd = reinterpret_cast<HWND>(PyLong_AsVoidPtr(hwnd_obj));
-    if (PyErr_Occurred())
-        return nullptr;
-
-    ::auto_th10::set_as_foreground(hwnd);
-    Py_RETURN_NONE;
-}
-
-/** Get HWND of TH10 window */
-PyObject* get_hwnd(PyObject*, PyObject*) noexcept {
-    HWND hwnd = ::auto_th10::get_hwnd();
-    return PyLong_FromVoidPtr(hwnd);
-}
-
-/** Get PID and TID from HWND */
-PyObject* get_pid_and_tid(PyObject*, PyObject* args) noexcept {
-    PyObject* hwnd_obj = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
-        return nullptr;
-    }
-    HWND hwnd = reinterpret_cast<HWND>(PyLong_AsVoidPtr(hwnd_obj));
-    if (PyErr_Occurred())
-        return nullptr;
-
-    ::auto_th10::details::pid_and_tid pt = ::auto_th10::get_pid_and_tid(hwnd);
-    return Py_BuildValue("(kk)", static_cast<unsigned long>(pt.pid), static_cast<unsigned long>(pt.tid));
-}
-
-/** Get process handle from PID */
-PyObject* get_process_handle(PyObject*, PyObject* args) noexcept {
-    unsigned long pid;
-    if (!PyArg_ParseTuple(args, "k", &pid)) {
-        return nullptr;
-    }
-    HANDLE hproc = ::auto_th10::get_process_handle(pid);
-    if (hproc == nullptr) {
-        Py_RETURN_NONE;
-    }
-    return PyLong_FromVoidPtr(hproc);
-}
-
 /* ===== Helpers ===== */
 
 /**
@@ -108,7 +41,7 @@ PyObject* get_process_handle(PyObject*, PyObject* args) noexcept {
  * @param out Output reference to store the converted value.
  * @return 0 on success, -1 on failure (with Python exception set).
  */
-int py_to_f32(PyObject* obj, ::auto_th10::float32_type& out) noexcept {
+static int py_to_f32(PyObject* obj, ::auto_th10::float32_type& out) noexcept {
     if (obj == nullptr) {
         PyErr_SetString(PyExc_TypeError, "expected a number, got None");
         return -1;
@@ -128,10 +61,75 @@ int py_to_f32(PyObject* obj, ::auto_th10::float32_type& out) noexcept {
 }
 
 /** @brief Convert float32_type to Python float. */
-PyObject* f32_to_py(::auto_th10::float32_type v) noexcept {
+static PyObject* f32_to_py(::auto_th10::float32_type v) noexcept {
     return PyFloat_FromDouble(static_cast<double>(v));
 }
-} // anonymous namespace
+
+/** Check if the game is over (hp == -1). */
+static PyObject* is_game_over(PyObject*, PyObject* args) noexcept {
+    PyObject* hproc_obj = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &hproc_obj)) {
+        return nullptr;
+    }
+    HANDLE hproc = reinterpret_cast<HANDLE>(PyLong_AsVoidPtr(hproc_obj));
+    if (PyErr_Occurred())
+        return nullptr;
+
+    bool over = ::auto_th10::is_game_over(hproc);
+    if (over) {
+        Py_RETURN_TRUE;
+    } else {
+        Py_RETURN_FALSE;
+    }
+}
+
+
+/** Bring window to foreground. */
+static PyObject* set_as_foreground(PyObject*, PyObject* args) noexcept {
+    PyObject* hwnd_obj = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
+        return nullptr;
+    }
+    HWND hwnd = reinterpret_cast<HWND>(PyLong_AsVoidPtr(hwnd_obj));
+    if (PyErr_Occurred())
+        return nullptr;
+
+    ::auto_th10::set_as_foreground(hwnd);
+    Py_RETURN_NONE;
+}
+
+/** Get HWND of TH10 window */
+static PyObject* get_hwnd(PyObject*, PyObject*) noexcept {
+    HWND hwnd = ::auto_th10::get_hwnd();
+    return PyLong_FromVoidPtr(hwnd);
+}
+
+/** Get PID and TID from HWND */
+static PyObject* get_pid_and_tid(PyObject*, PyObject* args) noexcept {
+    PyObject* hwnd_obj = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
+        return nullptr;
+    }
+    HWND hwnd = reinterpret_cast<HWND>(PyLong_AsVoidPtr(hwnd_obj));
+    if (PyErr_Occurred())
+        return nullptr;
+
+    ::auto_th10::details::pid_and_tid pt = ::auto_th10::get_pid_and_tid(hwnd);
+    return Py_BuildValue("(kk)", static_cast<unsigned long>(pt.pid), static_cast<unsigned long>(pt.tid));
+}
+
+/** Get process handle from PID */
+static PyObject* get_process_handle(PyObject*, PyObject* args) noexcept {
+    unsigned long pid;
+    if (!PyArg_ParseTuple(args, "k", &pid)) {
+        return nullptr;
+    }
+    HANDLE hproc = ::auto_th10::get_process_handle(pid);
+    if (hproc == nullptr) {
+        Py_RETURN_NONE;
+    }
+    return PyLong_FromVoidPtr(hproc);
+}
 
 /* ===== Base wrapper: ThObject ===== */
 
@@ -139,18 +137,15 @@ struct PyThObject {
     PyObject_HEAD ::auto_th10::ThObject* cpp_obj;
 };
 
-namespace {
 /** @brief Deallocate PyThObject. */
-void PyThObject_dealloc(PyThObject* self) noexcept {
+static void PyThObject_dealloc(PyThObject* self) noexcept {
     delete self->cpp_obj;
     self->cpp_obj = nullptr;
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
-} // anonymous namespace
 
-namespace {
 /** @brief __new__(x, y) for ThObject. */
-PyObject* PyThObject_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static PyObject* PyThObject_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", nullptr};
     PyObject *xobj = nullptr, *yobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", const_cast<char**>(kwlist), &xobj, &yobj)) {
@@ -174,18 +169,14 @@ PyObject* PyThObject_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noe
     }
     return reinterpret_cast<PyObject*>(self);
 }
-} // anonymous namespace
 
-namespace {
 /** @brief Getter for x. */
-PyObject* ThObject_get_x(PyThObject* self, void*) noexcept {
+static PyObject* ThObject_get_x(PyThObject* self, void*) noexcept {
     return f32_to_py(self->cpp_obj->x);
 }
-} // anonymous namespace
 
-namespace {
 /** @brief Setter for x. */
-int ThObject_set_x(PyThObject* self, PyObject* value, void*) noexcept {
+static int ThObject_set_x(PyThObject* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'x'");
         return -1;
@@ -196,18 +187,14 @@ int ThObject_set_x(PyThObject* self, PyObject* value, void*) noexcept {
     self->cpp_obj->x = v;
     return 0;
 }
-} // anonymous namespace
 
-namespace {
 /** @brief Getter for y. */
-PyObject* ThObject_get_y(PyThObject* self, void*) noexcept {
+static PyObject* ThObject_get_y(PyThObject* self, void*) noexcept {
     return f32_to_py(self->cpp_obj->y);
 }
-} // anonymous namespace
 
-namespace {
 /** @brief Setter for y. */
-int ThObject_set_y(PyThObject* self, PyObject* value, void*) noexcept {
+static int ThObject_set_y(PyThObject* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'y'");
         return -1;
@@ -218,7 +205,6 @@ int ThObject_set_y(PyThObject* self, PyObject* value, void*) noexcept {
     self->cpp_obj->y = v;
     return 0;
 }
-} // anonymous namespace
 
 static PyGetSetDef ThObject_getset[] = {
     {"x", reinterpret_cast<getter>(ThObject_get_x), reinterpret_cast<setter>(ThObject_set_x),
@@ -246,17 +232,14 @@ struct PyPlayer {
     ::auto_th10::Player* cpp_player; /**< convenience pointer to derived */
 };
 
-namespace {
-void PyPlayer_dealloc(PyPlayer* self) noexcept {
+static void PyPlayer_dealloc(PyPlayer* self) noexcept {
     delete self->cpp_player;
     self->cpp_player = nullptr;
     self->base.cpp_obj = nullptr;
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
-} // anonymous namespace
 
-namespace {
-PyObject* PyPlayer_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static PyObject* PyPlayer_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", nullptr};
     PyObject *xobj = nullptr, *yobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", const_cast<char**>(kwlist), &xobj, &yobj)) {
@@ -272,7 +255,7 @@ PyObject* PyPlayer_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexc
     if (self == nullptr)
         return nullptr;
 
-    self->cpp_player = new (std::nothrow)::auto_th10::Player(x, y);
+    self->cpp_player = new (std::nothrow)::auto_th10::Player{x, y};
     if (self->cpp_player == nullptr) {
         Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
         PyErr_NoMemory();
@@ -281,7 +264,6 @@ PyObject* PyPlayer_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexc
     self->base.cpp_obj = static_cast<::auto_th10::ThObject*>(self->cpp_player);
     return reinterpret_cast<PyObject*>(self);
 }
-} // anonymous namespace
 
 static PyTypeObject PyPlayerType = {
     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Player",
@@ -300,15 +282,14 @@ struct PyEnemy {
     ::auto_th10::Enemy* cpp_enemy;
 };
 
-namespace {
-void PyEnemy_dealloc(PyEnemy* self) noexcept {
+static void PyEnemy_dealloc(PyEnemy* self) noexcept {
     delete self->cpp_enemy;
     self->cpp_enemy = nullptr;
     self->base.cpp_obj = nullptr;
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-PyObject* PyEnemy_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static PyObject* PyEnemy_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", "width", "height", nullptr};
     PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOO", const_cast<char**>(kwlist), &xobj, &yobj, &wobj, &hobj)) {
@@ -328,7 +309,7 @@ PyObject* PyEnemy_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexce
     if (self == nullptr)
         return nullptr;
 
-    self->cpp_enemy = new (std::nothrow)::auto_th10::Enemy(x, y, w, h);
+    self->cpp_enemy = new (std::nothrow)::auto_th10::Enemy{x, y, w, h};
     if (self->cpp_enemy == nullptr) {
         Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
         PyErr_NoMemory();
@@ -339,11 +320,11 @@ PyObject* PyEnemy_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexce
 }
 
 /* Enemy width/height properties */
-PyObject* Enemy_get_width(PyEnemy* self, void*) noexcept {
+static PyObject* Enemy_get_width(PyEnemy* self, void*) noexcept {
     return f32_to_py(self->cpp_enemy->width);
 }
 
-int Enemy_set_width(PyEnemy* self, PyObject* value, void*) noexcept {
+static int Enemy_set_width(PyEnemy* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'width'");
         return -1;
@@ -370,7 +351,6 @@ static int Enemy_set_height(PyEnemy* self, PyObject* value, void*) noexcept {
     self->cpp_enemy->height = v;
     return 0;
 }
-} // anonymous namespace
 
 static PyGetSetDef Enemy_getset[] = {{"width", reinterpret_cast<getter>(Enemy_get_width),
                                       reinterpret_cast<setter>(Enemy_set_width), const_cast<char*>("width"), nullptr},
@@ -396,17 +376,14 @@ struct PyEnemyBullet {
     ::auto_th10::EnemyBullet* cpp_bullet;
 };
 
-namespace {
-void PyEnemyBullet_dealloc(PyEnemyBullet* self) noexcept {
+static void PyEnemyBullet_dealloc(PyEnemyBullet* self) noexcept {
     delete self->cpp_bullet;
     self->cpp_bullet = nullptr;
     self->base.cpp_obj = nullptr;
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
-} // anonymous namespace
 
-namespace {
-PyObject* PyEnemyBullet_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static PyObject* PyEnemyBullet_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", "width", "height", "dx", "dy", nullptr};
     PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr, *dxobj = nullptr, *dyobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOOO", const_cast<char**>(kwlist), &xobj, &yobj, &wobj, &hobj,
@@ -431,7 +408,7 @@ PyObject* PyEnemyBullet_new(PyTypeObject* type, PyObject* args, PyObject* kwds) 
     if (self == nullptr)
         return nullptr;
 
-    self->cpp_bullet = new (std::nothrow)::auto_th10::EnemyBullet(x, y, w, h, dx, dy);
+    self->cpp_bullet = new (std::nothrow)::auto_th10::EnemyBullet{x, y, w, h, dx, dy};
     if (self->cpp_bullet == nullptr) {
         Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
         PyErr_NoMemory();
@@ -440,17 +417,13 @@ PyObject* PyEnemyBullet_new(PyTypeObject* type, PyObject* args, PyObject* kwds) 
     self->base.cpp_obj = static_cast<::auto_th10::ThObject*>(self->cpp_bullet);
     return reinterpret_cast<PyObject*>(self);
 }
-} // anonymous namespace
 
 /* EnemyBullet extra properties */
-namespace {
-PyObject* Bullet_get_width(PyEnemyBullet* self, void*) noexcept {
+static PyObject* Bullet_get_width(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->width);
 }
-} // anonymous namespace
 
-namespace {
-int Bullet_set_width(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_width(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'width'");
         return -1;
@@ -462,11 +435,11 @@ int Bullet_set_width(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     return 0;
 }
 
-PyObject* Bullet_get_height(PyEnemyBullet* self, void*) noexcept {
+static PyObject* Bullet_get_height(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->height);
 }
 
-int Bullet_set_height(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_height(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'height'");
         return -1;
@@ -478,11 +451,11 @@ int Bullet_set_height(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     return 0;
 }
 
-PyObject* Bullet_get_dx(PyEnemyBullet* self, void*) noexcept {
+static PyObject* Bullet_get_dx(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->dx);
 }
 
-int Bullet_set_dx(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_dx(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'dx'");
         return -1;
@@ -494,11 +467,11 @@ int Bullet_set_dx(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     return 0;
 }
 
-PyObject* Bullet_get_dy(PyEnemyBullet* self, void*) noexcept {
+static PyObject* Bullet_get_dy(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->dy);
 }
 
-int Bullet_set_dy(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_dy(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'dy'");
         return -1;
@@ -509,7 +482,6 @@ int Bullet_set_dy(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     self->cpp_bullet->dy = v;
     return 0;
 }
-} // anonymous namespace
 
 static PyGetSetDef EnemyBullet_getset[] = {
     {"width", reinterpret_cast<getter>(Bullet_get_width), reinterpret_cast<setter>(Bullet_set_width),
@@ -540,15 +512,14 @@ struct PyEnemyLaser {
     ::auto_th10::EnemyLaser* cpp_laser;
 };
 
-namespace {
-void PyEnemyLaser_dealloc(PyEnemyLaser* self) noexcept {
+static void PyEnemyLaser_dealloc(PyEnemyLaser* self) noexcept {
     delete self->cpp_laser;
     self->cpp_laser = nullptr;
     self->base.cpp_obj = nullptr;
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-PyObject* PyEnemyLaser_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static PyObject* PyEnemyLaser_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", "width", "height", "radian", nullptr};
     PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr, *robj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOO", const_cast<char**>(kwlist), &xobj, &yobj, &wobj, &hobj,
@@ -571,7 +542,7 @@ PyObject* PyEnemyLaser_new(PyTypeObject* type, PyObject* args, PyObject* kwds) n
     if (self == nullptr)
         return nullptr;
 
-    self->cpp_laser = new (std::nothrow)::auto_th10::EnemyLaser(x, y, w, h, r);
+    self->cpp_laser = new (std::nothrow)::auto_th10::EnemyLaser{x, y, w, h, r};
     if (self->cpp_laser == nullptr) {
         Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
         PyErr_NoMemory();
@@ -580,15 +551,13 @@ PyObject* PyEnemyLaser_new(PyTypeObject* type, PyObject* args, PyObject* kwds) n
     self->base.cpp_obj = static_cast<::auto_th10::ThObject*>(self->cpp_laser);
     return reinterpret_cast<PyObject*>(self);
 }
-} // anonymous namespace
 
 /* EnemyLaser properties: width/height/radian */
-namespace {
-PyObject* Laser_get_width(PyEnemyLaser* self, void*) noexcept {
+static PyObject* Laser_get_width(PyEnemyLaser* self, void*) noexcept {
     return f32_to_py(self->cpp_laser->width);
 }
 
-int Laser_set_width(PyEnemyLaser* self, PyObject* value, void*) noexcept {
+static int Laser_set_width(PyEnemyLaser* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'width'");
         return -1;
@@ -600,11 +569,11 @@ int Laser_set_width(PyEnemyLaser* self, PyObject* value, void*) noexcept {
     return 0;
 }
 
-PyObject* Laser_get_height(PyEnemyLaser* self, void*) noexcept {
+static PyObject* Laser_get_height(PyEnemyLaser* self, void*) noexcept {
     return f32_to_py(self->cpp_laser->height);
 }
 
-int Laser_set_height(PyEnemyLaser* self, PyObject* value, void*) noexcept {
+static int Laser_set_height(PyEnemyLaser* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'height'");
         return -1;
@@ -616,11 +585,11 @@ int Laser_set_height(PyEnemyLaser* self, PyObject* value, void*) noexcept {
     return 0;
 }
 
-PyObject* Laser_get_radian(PyEnemyLaser* self, void*) noexcept {
+static PyObject* Laser_get_radian(PyEnemyLaser* self, void*) noexcept {
     return f32_to_py(self->cpp_laser->radian);
 }
 
-int Laser_set_radian(PyEnemyLaser* self, PyObject* value, void*) noexcept {
+static int Laser_set_radian(PyEnemyLaser* self, PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'radian'");
         return -1;
@@ -631,7 +600,6 @@ int Laser_set_radian(PyEnemyLaser* self, PyObject* value, void*) noexcept {
     self->cpp_laser->radian = v;
     return 0;
 }
-} // anonymous namespace
 
 static PyGetSetDef EnemyLaser_getset[] = {
     {"width", reinterpret_cast<getter>(Laser_get_width), reinterpret_cast<setter>(Laser_set_width),
@@ -660,15 +628,14 @@ struct PyResource {
     ::auto_th10::Resource* cpp_res;
 };
 
-namespace {
-void PyResource_dealloc(PyResource* self) noexcept {
+static void PyResource_dealloc(PyResource* self) noexcept {
     delete self->cpp_res;
     self->cpp_res = nullptr;
     self->base.cpp_obj = nullptr;
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-PyObject* PyResource_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static PyObject* PyResource_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", nullptr};
     PyObject *xobj = nullptr, *yobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", const_cast<char**>(kwlist), &xobj, &yobj)) {
@@ -684,7 +651,7 @@ PyObject* PyResource_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noe
     if (self == nullptr)
         return nullptr;
 
-    self->cpp_res = new (std::nothrow)::auto_th10::Resource(x, y);
+    self->cpp_res = new(::std::nothrow) ::auto_th10::Resource{x, y};
     if (self->cpp_res == nullptr) {
         Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
         PyErr_NoMemory();
@@ -693,7 +660,6 @@ PyObject* PyResource_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noe
     self->base.cpp_obj = static_cast<::auto_th10::ThObject*>(self->cpp_res);
     return reinterpret_cast<PyObject*>(self);
 }
-} // anonymous namespace
 
 static PyTypeObject PyResourceType = {
     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Resource",

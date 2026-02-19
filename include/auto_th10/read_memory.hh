@@ -28,13 +28,19 @@ inline void game_not_start() noexcept {
 #endif
 
 inline auto get_player(HANDLE process) noexcept {
-    ::auto_th10::float32_type x, y;
     ::std::uint32_t obj_base{};
     ::std::size_t nbr;
     ::ReadProcessMemory(process, LPCVOID(0x00477834), &obj_base, 4, &nbr);
     if (obj_base == 0) [[unlikely]] {
         ::auto_th10::details::game_not_start();
     }
+#if __has_cpp_attribute(indeterminate)
+    ::auto_th10::float32_type x [[indeterminate]];
+    ::auto_th10::float32_type y [[indeterminate]];
+#else
+    ::auto_th10::float32_type x;
+    ::auto_th10::float32_type y;
+#endif
     ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(obj_base + 0x3C0), &x, 4, &nbr);
     ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(obj_base + 0x3C4), &y, 4, &nbr);
 
@@ -71,7 +77,7 @@ inline auto get_enemies(HANDLE process) noexcept {
                                         ::std::addressof(nbr));
                     ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(obj_addr + 0xBC), ::std::addressof(h), 4,
                                         ::std::addressof(nbr));
-                    res.emplace_back(x, y, w, h);
+                    res.push_back({{x, y}, w, h});
                 }
             }
             if (obj_next == 0) {
@@ -116,7 +122,7 @@ inline auto get_enemy_bullets(HANDLE process) noexcept {
                                         ::std::addressof(nbr));
                     ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(ebx + 0x3F4), ::std::addressof(h), 4,
                                         ::std::addressof(nbr));
-                    res.emplace_back(x, y, w, h, dx, dy);
+                    res.push_back({{x, y}, w, h, dx, dy});
                 }
             }
         }
@@ -151,7 +157,7 @@ inline auto get_enemy_lasers(HANDLE process) noexcept {
                                 ::std::addressof(nbr));
             ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(esi + 0x44), ::std::addressof(w), 4,
                                 ::std::addressof(nbr));
-            res.emplace_back(x, y, w, h, radian);
+            res.push_back({{x, y}, w, h, radian});
             if (ebx == 0) {
                 break;
             }
@@ -179,7 +185,7 @@ inline auto get_resources(HANDLE process) noexcept {
             ::auto_th10::float32_type x, y;
             ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(ebp - 0x4), &x, 4, ::std::addressof(nbr));
             ::ReadProcessMemory(process, reinterpret_cast<LPCVOID>(ebp), &y, 4, ::std::addressof(nbr));
-            res.emplace_back(x, y);
+            res.push_back({x, y});
         }
         ebp += 0x3F0;
     }
