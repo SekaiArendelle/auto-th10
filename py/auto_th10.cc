@@ -214,14 +214,15 @@ static PyGetSetDef ThObject_getset[] = {
     {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyThObjectType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.ThObject",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "auto_th10.ThObject",
     .tp_basicsize = sizeof(PyThObject),
     .tp_itemsize = 0,
+    .tp_dealloc = reinterpret_cast<destructor>(PyThObject_dealloc),
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_doc = const_cast<char*>("ThObject base type"),
-    .tp_new = PyThObject_new,
-    .tp_dealloc = reinterpret_cast<destructor>(PyThObject_dealloc),
     .tp_getset = ThObject_getset,
+    .tp_new = PyThObject_new,
 };
 
 /* ===== Derived wrappers (embed PyThObject as first field to match inheritance) ===== */
@@ -266,14 +267,15 @@ static ::PyObject* PyPlayer_new(PyTypeObject* type, ::PyObject* args, ::PyObject
 }
 
 static PyTypeObject PyPlayerType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Player",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "auto_th10.Player",
     .tp_basicsize = sizeof(PyPlayer),
     .tp_itemsize = 0,
+    .tp_dealloc = reinterpret_cast<destructor>(PyPlayer_dealloc),
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_doc = const_cast<char*>("Player (inherits ThObject)"),
-    .tp_new = PyPlayer_new,
-    .tp_dealloc = reinterpret_cast<destructor>(PyPlayer_dealloc),
     .tp_base = &PyThObjectType,
+    .tp_new = PyPlayer_new,
 };
 
 /* --- Enemy : ThObject --- */
@@ -359,15 +361,16 @@ static PyGetSetDef Enemy_getset[] = {{"width", reinterpret_cast<getter>(Enemy_ge
                                      {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyEnemyType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Enemy",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "auto_th10.Enemy",
     .tp_basicsize = sizeof(PyEnemy),
     .tp_itemsize = 0,
+    .tp_dealloc = reinterpret_cast<destructor>(PyEnemy_dealloc),
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_doc = const_cast<char*>("Enemy (inherits ThObject)"),
-    .tp_new = PyEnemy_new,
-    .tp_dealloc = reinterpret_cast<destructor>(PyEnemy_dealloc),
     .tp_getset = Enemy_getset,
     .tp_base = &PyThObjectType,
+    .tp_new = PyEnemy_new,
 };
 
 /* --- EnemyBullet : ThObject --- */
@@ -495,15 +498,16 @@ static PyGetSetDef EnemyBullet_getset[] = {
     {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyEnemyBulletType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.EnemyBullet",
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "auto_th10.EnemyBullet",
     .tp_basicsize = sizeof(PyEnemyBullet),
     .tp_itemsize = 0,
+    .tp_dealloc = reinterpret_cast<destructor>(PyEnemyBullet_dealloc),
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_doc = const_cast<char*>("EnemyBullet (inherits ThObject)"),
-    .tp_new = PyEnemyBullet_new,
-    .tp_dealloc = reinterpret_cast<destructor>(PyEnemyBullet_dealloc),
     .tp_getset = EnemyBullet_getset,
     .tp_base = &PyThObjectType,
+    .tp_new = PyEnemyBullet_new,
 };
 
 /* --- EnemyLaser : ThObject --- */
@@ -611,15 +615,16 @@ static PyGetSetDef EnemyLaser_getset[] = {
     {nullptr, nullptr, nullptr, nullptr, nullptr}};
 
 static PyTypeObject PyEnemyLaserType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.EnemyLaser",
+    .ob_base= PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "auto_th10.EnemyLaser",
     .tp_basicsize = sizeof(PyEnemyLaser),
     .tp_itemsize = 0,
+    .tp_dealloc = reinterpret_cast<destructor>(PyEnemyLaser_dealloc),
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_doc = const_cast<char*>("EnemyLaser (inherits ThObject)"),
-    .tp_new = PyEnemyLaser_new,
-    .tp_dealloc = reinterpret_cast<destructor>(PyEnemyLaser_dealloc),
     .tp_getset = EnemyLaser_getset,
     .tp_base = &PyThObjectType,
+    .tp_new = PyEnemyLaser_new,
 };
 
 /* --- Resource : ThObject --- */
@@ -662,14 +667,15 @@ static ::PyObject* PyResource_new(PyTypeObject* type, ::PyObject* args, ::PyObje
 }
 
 static PyTypeObject PyResourceType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "auto_th10.Resource",
+    .ob_base= PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "auto_th10.Resource",
     .tp_basicsize = sizeof(PyResource),
     .tp_itemsize = 0,
+    .tp_dealloc = reinterpret_cast<destructor>(PyResource_dealloc),
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_doc = const_cast<char*>("Resource (inherits ThObject)"),
-    .tp_new = PyResource_new,
-    .tp_dealloc = reinterpret_cast<destructor>(PyResource_dealloc),
     .tp_base = &PyThObjectType,
+    .tp_new = PyResource_new,
 };
 
 static ::PyObject* get_player([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
