@@ -41,12 +41,12 @@
  * @param out Output reference to store the converted value.
  * @return 0 on success, -1 on failure (with Python exception set).
  */
-static int py_to_f32(PyObject* obj, ::auto_th10::float32_type& out) noexcept {
+static int py_to_f32(::PyObject* obj, ::auto_th10::float32_type& out) noexcept {
     if (obj == nullptr) {
         PyErr_SetString(PyExc_TypeError, "expected a number, got None");
         return -1;
     }
-    PyObject* f = PyNumber_Float(obj);
+    ::PyObject* f = PyNumber_Float(obj);
     if (f == nullptr) {
         PyErr_SetString(PyExc_TypeError, "expected a number");
         return -1;
@@ -61,13 +61,13 @@ static int py_to_f32(PyObject* obj, ::auto_th10::float32_type& out) noexcept {
 }
 
 /** @brief Convert float32_type to Python float. */
-static PyObject* f32_to_py(::auto_th10::float32_type v) noexcept {
+static ::PyObject* f32_to_py(::auto_th10::float32_type v) noexcept {
     return PyFloat_FromDouble(static_cast<double>(v));
 }
 
 /** Check if the game is over (hp == -1). */
-static PyObject* is_game_over(PyObject*, PyObject* args) noexcept {
-    PyObject* hproc_obj = nullptr;
+static ::PyObject* is_game_over(::PyObject*, ::PyObject* args) noexcept {
+    ::PyObject* hproc_obj = nullptr;
     if (!PyArg_ParseTuple(args, "O", &hproc_obj)) {
         return nullptr;
     }
@@ -85,8 +85,8 @@ static PyObject* is_game_over(PyObject*, PyObject* args) noexcept {
 
 
 /** Bring window to foreground. */
-static PyObject* set_as_foreground(PyObject*, PyObject* args) noexcept {
-    PyObject* hwnd_obj = nullptr;
+static ::PyObject* set_as_foreground(::PyObject*, ::PyObject* args) noexcept {
+    ::PyObject* hwnd_obj = nullptr;
     if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
         return nullptr;
     }
@@ -99,14 +99,14 @@ static PyObject* set_as_foreground(PyObject*, PyObject* args) noexcept {
 }
 
 /** Get HWND of TH10 window */
-static PyObject* get_hwnd(PyObject*, PyObject*) noexcept {
+static ::PyObject* get_hwnd(::PyObject*, ::PyObject*) noexcept {
     HWND hwnd = ::auto_th10::get_hwnd();
     return PyLong_FromVoidPtr(hwnd);
 }
 
 /** Get PID and TID from HWND */
-static PyObject* get_pid_and_tid(PyObject*, PyObject* args) noexcept {
-    PyObject* hwnd_obj = nullptr;
+static ::PyObject* get_pid_and_tid(::PyObject*, ::PyObject* args) noexcept {
+    ::PyObject* hwnd_obj = nullptr;
     if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
         return nullptr;
     }
@@ -119,7 +119,7 @@ static PyObject* get_pid_and_tid(PyObject*, PyObject* args) noexcept {
 }
 
 /** Get process handle from PID */
-static PyObject* get_process_handle(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_process_handle(::PyObject*, ::PyObject* args) noexcept {
     unsigned long pid;
     if (!PyArg_ParseTuple(args, "k", &pid)) {
         return nullptr;
@@ -134,7 +134,7 @@ static PyObject* get_process_handle(PyObject*, PyObject* args) noexcept {
 /* ===== Base wrapper: ThObject ===== */
 
 struct PyThObject {
-    PyObject_HEAD ::auto_th10::ThObject* cpp_obj;
+    ::PyObject_HEAD ::auto_th10::ThObject* cpp_obj;
 };
 
 /** @brief Deallocate PyThObject. */
@@ -145,9 +145,9 @@ static void PyThObject_dealloc(PyThObject* self) noexcept {
 }
 
 /** @brief __new__(x, y) for ThObject. */
-static PyObject* PyThObject_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static ::PyObject* PyThObject_new(PyTypeObject* type, ::PyObject* args, ::PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", nullptr};
-    PyObject *xobj = nullptr, *yobj = nullptr;
+    ::PyObject *xobj = nullptr, *yobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", const_cast<char**>(kwlist), &xobj, &yobj)) {
         return nullptr;
     }
@@ -171,12 +171,12 @@ static PyObject* PyThObject_new(PyTypeObject* type, PyObject* args, PyObject* kw
 }
 
 /** @brief Getter for x. */
-static PyObject* ThObject_get_x(PyThObject* self, void*) noexcept {
+static ::PyObject* ThObject_get_x(PyThObject* self, void*) noexcept {
     return f32_to_py(self->cpp_obj->x);
 }
 
 /** @brief Setter for x. */
-static int ThObject_set_x(PyThObject* self, PyObject* value, void*) noexcept {
+static int ThObject_set_x(PyThObject* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'x'");
         return -1;
@@ -189,12 +189,12 @@ static int ThObject_set_x(PyThObject* self, PyObject* value, void*) noexcept {
 }
 
 /** @brief Getter for y. */
-static PyObject* ThObject_get_y(PyThObject* self, void*) noexcept {
+static ::PyObject* ThObject_get_y(PyThObject* self, void*) noexcept {
     return f32_to_py(self->cpp_obj->y);
 }
 
 /** @brief Setter for y. */
-static int ThObject_set_y(PyThObject* self, PyObject* value, void*) noexcept {
+static int ThObject_set_y(PyThObject* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'y'");
         return -1;
@@ -239,9 +239,9 @@ static void PyPlayer_dealloc(PyPlayer* self) noexcept {
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-static PyObject* PyPlayer_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static ::PyObject* PyPlayer_new(PyTypeObject* type, ::PyObject* args, ::PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", nullptr};
-    PyObject *xobj = nullptr, *yobj = nullptr;
+    ::PyObject *xobj = nullptr, *yobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", const_cast<char**>(kwlist), &xobj, &yobj)) {
         return nullptr;
     }
@@ -289,9 +289,9 @@ static void PyEnemy_dealloc(PyEnemy* self) noexcept {
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-static PyObject* PyEnemy_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static ::PyObject* PyEnemy_new(PyTypeObject* type, ::PyObject* args, ::PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", "width", "height", nullptr};
-    PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr;
+    ::PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOO", const_cast<char**>(kwlist), &xobj, &yobj, &wobj, &hobj)) {
         return nullptr;
     }
@@ -320,11 +320,11 @@ static PyObject* PyEnemy_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
 }
 
 /* Enemy width/height properties */
-static PyObject* Enemy_get_width(PyEnemy* self, void*) noexcept {
+static ::PyObject* Enemy_get_width(PyEnemy* self, void*) noexcept {
     return f32_to_py(self->cpp_enemy->width);
 }
 
-static int Enemy_set_width(PyEnemy* self, PyObject* value, void*) noexcept {
+static int Enemy_set_width(PyEnemy* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'width'");
         return -1;
@@ -336,11 +336,11 @@ static int Enemy_set_width(PyEnemy* self, PyObject* value, void*) noexcept {
     return 0;
 }
 
-static PyObject* Enemy_get_height(PyEnemy* self, void*) noexcept {
+static ::PyObject* Enemy_get_height(PyEnemy* self, void*) noexcept {
     return f32_to_py(self->cpp_enemy->height);
 }
 
-static int Enemy_set_height(PyEnemy* self, PyObject* value, void*) noexcept {
+static int Enemy_set_height(PyEnemy* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'height'");
         return -1;
@@ -383,9 +383,9 @@ static void PyEnemyBullet_dealloc(PyEnemyBullet* self) noexcept {
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-static PyObject* PyEnemyBullet_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static ::PyObject* PyEnemyBullet_new(PyTypeObject* type, ::PyObject* args, ::PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", "width", "height", "dx", "dy", nullptr};
-    PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr, *dxobj = nullptr, *dyobj = nullptr;
+    ::PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr, *dxobj = nullptr, *dyobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOOO", const_cast<char**>(kwlist), &xobj, &yobj, &wobj, &hobj,
                                      &dxobj, &dyobj)) {
         return nullptr;
@@ -419,11 +419,11 @@ static PyObject* PyEnemyBullet_new(PyTypeObject* type, PyObject* args, PyObject*
 }
 
 /* EnemyBullet extra properties */
-static PyObject* Bullet_get_width(PyEnemyBullet* self, void*) noexcept {
+static ::PyObject* Bullet_get_width(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->width);
 }
 
-static int Bullet_set_width(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_width(PyEnemyBullet* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'width'");
         return -1;
@@ -435,11 +435,11 @@ static int Bullet_set_width(PyEnemyBullet* self, PyObject* value, void*) noexcep
     return 0;
 }
 
-static PyObject* Bullet_get_height(PyEnemyBullet* self, void*) noexcept {
+static ::PyObject* Bullet_get_height(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->height);
 }
 
-static int Bullet_set_height(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_height(PyEnemyBullet* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'height'");
         return -1;
@@ -451,11 +451,11 @@ static int Bullet_set_height(PyEnemyBullet* self, PyObject* value, void*) noexce
     return 0;
 }
 
-static PyObject* Bullet_get_dx(PyEnemyBullet* self, void*) noexcept {
+static ::PyObject* Bullet_get_dx(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->dx);
 }
 
-static int Bullet_set_dx(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_dx(PyEnemyBullet* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'dx'");
         return -1;
@@ -467,11 +467,11 @@ static int Bullet_set_dx(PyEnemyBullet* self, PyObject* value, void*) noexcept {
     return 0;
 }
 
-static PyObject* Bullet_get_dy(PyEnemyBullet* self, void*) noexcept {
+static ::PyObject* Bullet_get_dy(PyEnemyBullet* self, void*) noexcept {
     return f32_to_py(self->cpp_bullet->dy);
 }
 
-static int Bullet_set_dy(PyEnemyBullet* self, PyObject* value, void*) noexcept {
+static int Bullet_set_dy(PyEnemyBullet* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'dy'");
         return -1;
@@ -519,9 +519,9 @@ static void PyEnemyLaser_dealloc(PyEnemyLaser* self) noexcept {
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-static PyObject* PyEnemyLaser_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static ::PyObject* PyEnemyLaser_new(PyTypeObject* type, ::PyObject* args, ::PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", "width", "height", "radian", nullptr};
-    PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr, *robj = nullptr;
+    ::PyObject *xobj = nullptr, *yobj = nullptr, *wobj = nullptr, *hobj = nullptr, *robj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOO", const_cast<char**>(kwlist), &xobj, &yobj, &wobj, &hobj,
                                      &robj)) {
         return nullptr;
@@ -553,11 +553,11 @@ static PyObject* PyEnemyLaser_new(PyTypeObject* type, PyObject* args, PyObject* 
 }
 
 /* EnemyLaser properties: width/height/radian */
-static PyObject* Laser_get_width(PyEnemyLaser* self, void*) noexcept {
+static ::PyObject* Laser_get_width(PyEnemyLaser* self, void*) noexcept {
     return f32_to_py(self->cpp_laser->width);
 }
 
-static int Laser_set_width(PyEnemyLaser* self, PyObject* value, void*) noexcept {
+static int Laser_set_width(PyEnemyLaser* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'width'");
         return -1;
@@ -569,11 +569,11 @@ static int Laser_set_width(PyEnemyLaser* self, PyObject* value, void*) noexcept 
     return 0;
 }
 
-static PyObject* Laser_get_height(PyEnemyLaser* self, void*) noexcept {
+static ::PyObject* Laser_get_height(PyEnemyLaser* self, void*) noexcept {
     return f32_to_py(self->cpp_laser->height);
 }
 
-static int Laser_set_height(PyEnemyLaser* self, PyObject* value, void*) noexcept {
+static int Laser_set_height(PyEnemyLaser* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'height'");
         return -1;
@@ -585,11 +585,11 @@ static int Laser_set_height(PyEnemyLaser* self, PyObject* value, void*) noexcept
     return 0;
 }
 
-static PyObject* Laser_get_radian(PyEnemyLaser* self, void*) noexcept {
+static ::PyObject* Laser_get_radian(PyEnemyLaser* self, void*) noexcept {
     return f32_to_py(self->cpp_laser->radian);
 }
 
-static int Laser_set_radian(PyEnemyLaser* self, PyObject* value, void*) noexcept {
+static int Laser_set_radian(PyEnemyLaser* self, ::PyObject* value, void*) noexcept {
     if (value == nullptr) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute 'radian'");
         return -1;
@@ -635,9 +635,9 @@ static void PyResource_dealloc(PyResource* self) noexcept {
     Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-static PyObject* PyResource_new(PyTypeObject* type, PyObject* args, PyObject* kwds) noexcept {
+static ::PyObject* PyResource_new(PyTypeObject* type, ::PyObject* args, ::PyObject* kwds) noexcept {
     static const char* kwlist[] = {"x", "y", nullptr};
-    PyObject *xobj = nullptr, *yobj = nullptr;
+    ::PyObject *xobj = nullptr, *yobj = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", const_cast<char**>(kwlist), &xobj, &yobj)) {
         return nullptr;
     }
@@ -672,111 +672,111 @@ static PyTypeObject PyResourceType = {
     .tp_base = &PyThObjectType,
 };
 
-static PyObject* get_player(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_player(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
     }
     auto player = ::auto_th10::get_player(reinterpret_cast<HANDLE>(handle));
-    PyObject* mod = PyImport_ImportModule("auto_th10");
+    ::PyObject* mod = PyImport_ImportModule("auto_th10");
     if (!mod) return nullptr;
-    PyObject* cls = PyObject_GetAttrString(mod, "Player");
+    ::PyObject* cls = ::PyObject_GetAttrString(mod, "Player");
     Py_DECREF(mod);
     if (!cls) return nullptr;
-    PyObject* obj = PyObject_CallFunction(cls, "ff", player.x, player.y);
+    ::PyObject* obj = ::PyObject_CallFunction(cls, "ff", player.x, player.y);
     Py_DECREF(cls);
     return obj;
 }
 
-static PyObject* get_enemies(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_enemies(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
     }
     auto enemies = ::auto_th10::get_enemies(reinterpret_cast<HANDLE>(handle));
-    PyObject* list = PyList_New(enemies.size());
+    ::PyObject* list = PyList_New(enemies.size());
     if (!list) return nullptr;
-    PyObject* mod = PyImport_ImportModule("auto_th10");
+    ::PyObject* mod = PyImport_ImportModule("auto_th10");
     if (!mod) return nullptr;
-    PyObject* cls = PyObject_GetAttrString(mod, "Enemy");
+    ::PyObject* cls = ::PyObject_GetAttrString(mod, "Enemy");
     Py_DECREF(mod);
     if (!cls) return nullptr;
     for (size_t i = 0; i < enemies.size(); i++) {
         auto const& e = enemies[i];
-        PyObject* obj = PyObject_CallFunction(cls, "ffff", e.x, e.y, e.width, e.height);
+        ::PyObject* obj = ::PyObject_CallFunction(cls, "ffff", e.x, e.y, e.width, e.height);
         PyList_SET_ITEM(list, i, obj); // steals ref
     }
     Py_DECREF(cls);
     return list;
 }
 
-static PyObject* get_enemy_bullets(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_enemy_bullets(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
     }
     auto bullets = ::auto_th10::get_enemy_bullets(reinterpret_cast<HANDLE>(handle));
-    PyObject* list = PyList_New(bullets.size());
+    ::PyObject* list = PyList_New(bullets.size());
     if (!list) return nullptr;
-    PyObject* mod = PyImport_ImportModule("auto_th10");
+    ::PyObject* mod = PyImport_ImportModule("auto_th10");
     if (!mod) return nullptr;
-    PyObject* cls = PyObject_GetAttrString(mod, "EnemyBullet");
+    ::PyObject* cls = ::PyObject_GetAttrString(mod, "EnemyBullet");
     Py_DECREF(mod);
     if (!cls) return nullptr;
     for (size_t i = 0; i < bullets.size(); i++) {
         auto const& b = bullets[i];
-        PyObject* obj = PyObject_CallFunction(cls, "ffffff", b.x, b.y, b.width, b.height, b.dx, b.dy);
+        ::PyObject* obj = ::PyObject_CallFunction(cls, "ffffff", b.x, b.y, b.width, b.height, b.dx, b.dy);
         PyList_SET_ITEM(list, i, obj);
     }
     Py_DECREF(cls);
     return list;
 }
 
-static PyObject* get_enemy_lasers(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_enemy_lasers(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
     }
     auto lasers = ::auto_th10::get_enemy_lasers(reinterpret_cast<HANDLE>(handle));
-    PyObject* list = PyList_New(lasers.size());
+    ::PyObject* list = PyList_New(lasers.size());
     if (!list) return nullptr;
-    PyObject* mod = PyImport_ImportModule("auto_th10");
+    ::PyObject* mod = PyImport_ImportModule("auto_th10");
     if (!mod) return nullptr;
-    PyObject* cls = PyObject_GetAttrString(mod, "EnemyLaser");
+    ::PyObject* cls = ::PyObject_GetAttrString(mod, "EnemyLaser");
     Py_DECREF(mod);
     if (!cls) return nullptr;
     for (size_t i = 0; i < lasers.size(); i++) {
         auto const& l = lasers[i];
-        PyObject* obj = PyObject_CallFunction(cls, "fffff", l.x, l.y, l.width, l.height, l.radian);
+        ::PyObject* obj = ::PyObject_CallFunction(cls, "fffff", l.x, l.y, l.width, l.height, l.radian);
         PyList_SET_ITEM(list, i, obj);
     }
     Py_DECREF(cls);
     return list;
 }
 
-static PyObject* get_resources(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_resources(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
     }
     auto res = ::auto_th10::get_resources(reinterpret_cast<HANDLE>(handle));
-    PyObject* list = PyList_New(res.size());
+    ::PyObject* list = PyList_New(res.size());
     if (!list) return nullptr;
-    PyObject* mod = PyImport_ImportModule("auto_th10");
+    ::PyObject* mod = PyImport_ImportModule("auto_th10");
     if (!mod) return nullptr;
-    PyObject* cls = PyObject_GetAttrString(mod, "Resource");
+    ::PyObject* cls = ::PyObject_GetAttrString(mod, "Resource");
     Py_DECREF(mod);
     if (!cls) return nullptr;
     for (size_t i = 0; i < res.size(); i++) {
         auto const& r = res[i];
-        PyObject* obj = PyObject_CallFunction(cls, "ff", r.x, r.y);
+        ::PyObject* obj = ::PyObject_CallFunction(cls, "ff", r.x, r.y);
         PyList_SET_ITEM(list, i, obj);
     }
     Py_DECREF(cls);
     return list;
 }
 
-static PyObject* get_score(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_score(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -785,7 +785,7 @@ static PyObject* get_score(PyObject*, PyObject* args) noexcept {
     return PyLong_FromUnsignedLong(score);
 }
 
-static PyObject* get_power(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_power(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -794,7 +794,7 @@ static PyObject* get_power(PyObject*, PyObject* args) noexcept {
     return PyLong_FromUnsignedLong(power);
 }
 
-static PyObject* get_hp(PyObject*, PyObject* args) noexcept {
+static ::PyObject* get_hp(::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -849,7 +849,7 @@ PyMODINIT_FUNC PyInit_auto_th10(void) noexcept {
     if (PyType_Ready(&PyResourceType) < 0)
         return nullptr;
 
-    PyObject* m = PyModule_Create(&auto_th10_module);
+    ::PyObject* m = PyModule_Create(&auto_th10_module);
     if (m == nullptr)
         return nullptr;
 
@@ -898,8 +898,8 @@ PyMODINIT_FUNC PyInit_auto_th10(void) noexcept {
 
     /* Add static constexpr class attributes for Player and Resource */
     {
-        PyObject* pw = f32_to_py(::auto_th10::Player::width);
-        PyObject* ph = f32_to_py(::auto_th10::Player::height);
+        ::PyObject* pw = f32_to_py(::auto_th10::Player::width);
+        ::PyObject* ph = f32_to_py(::auto_th10::Player::height);
         if (pw == nullptr || ph == nullptr) {
             Py_XDECREF(pw);
             Py_XDECREF(ph);
@@ -916,8 +916,8 @@ PyMODINIT_FUNC PyInit_auto_th10(void) noexcept {
         Py_DECREF(pw);
         Py_DECREF(ph);
 
-        PyObject* rw = f32_to_py(::auto_th10::Resource::width);
-        PyObject* rh = f32_to_py(::auto_th10::Resource::height);
+        ::PyObject* rw = f32_to_py(::auto_th10::Resource::width);
+        ::PyObject* rh = f32_to_py(::auto_th10::Resource::height);
         if (rw == nullptr || rh == nullptr) {
             Py_XDECREF(rw);
             Py_XDECREF(rh);
