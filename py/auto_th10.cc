@@ -66,7 +66,7 @@ static ::PyObject* f32_to_py(::auto_th10::float32_type v) noexcept {
 }
 
 /** Check if the game is over (hp == -1). */
-static ::PyObject* is_game_over(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* is_game_over([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     ::PyObject* hproc_obj = nullptr;
     if (!PyArg_ParseTuple(args, "O", &hproc_obj)) {
         return nullptr;
@@ -85,7 +85,7 @@ static ::PyObject* is_game_over(::PyObject*, ::PyObject* args) noexcept {
 
 
 /** Bring window to foreground. */
-static ::PyObject* set_as_foreground(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* set_as_foreground([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     ::PyObject* hwnd_obj = nullptr;
     if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
         return nullptr;
@@ -99,13 +99,13 @@ static ::PyObject* set_as_foreground(::PyObject*, ::PyObject* args) noexcept {
 }
 
 /** Get HWND of TH10 window */
-static ::PyObject* get_hwnd(::PyObject*, ::PyObject*) noexcept {
+static ::PyObject* get_hwnd([[maybe_unused]] ::PyObject*, ::PyObject*) noexcept {
     HWND hwnd = ::auto_th10::get_hwnd();
     return PyLong_FromVoidPtr(hwnd);
 }
 
 /** Get PID and TID from HWND */
-static ::PyObject* get_pid_and_tid(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_pid_and_tid([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     ::PyObject* hwnd_obj = nullptr;
     if (!PyArg_ParseTuple(args, "O", &hwnd_obj)) {
         return nullptr;
@@ -119,7 +119,7 @@ static ::PyObject* get_pid_and_tid(::PyObject*, ::PyObject* args) noexcept {
 }
 
 /** Get process handle from PID */
-static ::PyObject* get_process_handle(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_process_handle([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long pid;
     if (!PyArg_ParseTuple(args, "k", &pid)) {
         return nullptr;
@@ -134,7 +134,7 @@ static ::PyObject* get_process_handle(::PyObject*, ::PyObject* args) noexcept {
 /* ===== Base wrapper: ThObject ===== */
 
 struct PyThObject {
-    ::PyObject_HEAD ::auto_th10::ThObject* cpp_obj;
+    PyObject_HEAD ::auto_th10::ThObject* cpp_obj;
 };
 
 /** @brief Deallocate PyThObject. */
@@ -672,7 +672,7 @@ static PyTypeObject PyResourceType = {
     .tp_base = &PyThObjectType,
 };
 
-static ::PyObject* get_player(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_player([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -688,7 +688,7 @@ static ::PyObject* get_player(::PyObject*, ::PyObject* args) noexcept {
     return obj;
 }
 
-static ::PyObject* get_enemies(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_enemies([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -710,7 +710,7 @@ static ::PyObject* get_enemies(::PyObject*, ::PyObject* args) noexcept {
     return list;
 }
 
-static ::PyObject* get_enemy_bullets(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_enemy_bullets([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -732,7 +732,7 @@ static ::PyObject* get_enemy_bullets(::PyObject*, ::PyObject* args) noexcept {
     return list;
 }
 
-static ::PyObject* get_enemy_lasers(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_enemy_lasers([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -754,7 +754,7 @@ static ::PyObject* get_enemy_lasers(::PyObject*, ::PyObject* args) noexcept {
     return list;
 }
 
-static ::PyObject* get_resources(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_resources([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -776,7 +776,7 @@ static ::PyObject* get_resources(::PyObject*, ::PyObject* args) noexcept {
     return list;
 }
 
-static ::PyObject* get_score(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_score([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -785,7 +785,7 @@ static ::PyObject* get_score(::PyObject*, ::PyObject* args) noexcept {
     return PyLong_FromUnsignedLong(score);
 }
 
-static ::PyObject* get_power(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_power([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
@@ -794,7 +794,7 @@ static ::PyObject* get_power(::PyObject*, ::PyObject* args) noexcept {
     return PyLong_FromUnsignedLong(power);
 }
 
-static ::PyObject* get_hp(::PyObject*, ::PyObject* args) noexcept {
+static ::PyObject* get_hp([[maybe_unused]] ::PyObject*, ::PyObject* args) noexcept {
     unsigned long long handle;
     if (!PyArg_ParseTuple(args, "K", &handle)) {
         return nullptr;
