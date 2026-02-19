@@ -3,6 +3,69 @@
 namespace fast_io
 {
 
+struct win32_socket_event_guard_t
+{
+	using native_handle_type = ::std::size_t;
+
+	native_handle_type curr_handle{};
+
+	inline constexpr win32_socket_event_guard_t() noexcept = default;
+
+	inline constexpr win32_socket_event_guard_t(native_handle_type handle) noexcept : curr_handle(handle)
+	{}
+
+	inline constexpr win32_socket_event_guard_t(win32_socket_event_guard_t const &) = delete;
+	inline constexpr win32_socket_event_guard_t &operator=(win32_socket_event_guard_t const &) = delete;
+
+	inline constexpr win32_socket_event_guard_t(win32_socket_event_guard_t &&other) noexcept : curr_handle{other.curr_handle}
+	{
+		other.curr_handle = {};
+	}
+
+	inline constexpr win32_socket_event_guard_t &operator=(win32_socket_event_guard_t &&other) noexcept
+	{
+		if (__builtin_addressof(other) == this) [[unlikely]]
+		{
+			return *this;
+		}
+
+		if (curr_handle) [[likely]]
+		{
+			::fast_io::win32::WSACloseEvent(curr_handle);
+		}
+
+		curr_handle = other.curr_handle;
+		other.curr_handle = {};
+
+		return *this;
+	}
+
+	inline constexpr native_handle_type release() noexcept
+	{
+		native_handle_type temp{curr_handle};
+		curr_handle = {};
+		return temp;
+	}
+
+	inline constexpr native_handle_type native_handle() const noexcept
+	{
+		return curr_handle;
+	}
+
+	inline constexpr native_handle_type native_handle() noexcept
+	{
+		return curr_handle;
+	}
+
+	inline constexpr ~win32_socket_event_guard_t()
+	{
+		if (curr_handle) [[likely]]
+		{
+			::fast_io::win32::WSACloseEvent(curr_handle);
+		}
+	}
+};
+
 using win32_socklen_t = int;
 
 template <win32_family family, ::std::integral ch_type>
@@ -187,7 +250,20 @@ namespace win32::details
 
 inline ::std::size_t win32_duphsocket(::std::size_t s)
 {
-	return reinterpret_cast<::std::size_t>(win32_dup_impl(reinterpret_cast<void *>(s)));
+	// Duplicate a SOCKET using WSADuplicateSocket + WSASocket, per MSDN guidance.
+	::fast_io::win32::wsaprotocol_infoa info{};
+	::std::uint_least32_t const pid{::fast_io::win32::GetCurrentProcessId()};
+	if (::fast_io::win32::WSADuplicateSocketA(s, pid, __builtin_addressof(info)) != 0)
+	{
+		throw_win32_error(static_cast<::std::uint_least32_t>(::fast_io::win32::WSAGetLastError()));
+	}
+	::std::size_t dup{
+		::fast_io::win32::WSASocketA(info.iAddressFamily, info.iSocketType, info.iProtocol, __builtin_addressof(info), 0, 0)};
+	if (dup == UINTPTR_MAX)
+	{
+		throw_win32_error(static_cast<::std::uint_least32_t>(::fast_io::win32::WSAGetLastError()));
+	}
+	return dup;
 }
 inline ::std::size_t win32_dup2hsocket(::std::size_t handle, ::std::size_t newhandle)
 {

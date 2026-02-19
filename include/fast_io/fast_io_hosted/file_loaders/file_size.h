@@ -133,19 +133,25 @@ inline ::std::size_t posix_loader_get_file_size(int fd)
 	}
 	return static_cast<::std::size_t>(statxbuf.stx_size);
 #else
+
 #if defined(__linux__) && !defined(__MLIBC_O_CLOEXEC)
 	struct stat64 st;
 #else
 	struct stat st;
 #endif
-	if (
+
+	if (::fast_io::noexcept_call(
 #if defined(__linux__) && !defined(__MLIBC_O_CLOEXEC)
-		fstat64
+			::fstat64
 #else
-		fstat
+			::fstat
 #endif
-		(fd, __builtin_addressof(st)) < 0)
+			,
+			fd, __builtin_addressof(st)) == -1) [[unlikely]]
+	{
 		throw_posix_error();
+	}
+
 	using st_size_unsigned_type = ::std::make_unsigned_t<decltype(st.st_size)>;
 	if constexpr (sizeof(st_size_unsigned_type) > sizeof(::std::size_t))
 	{
@@ -170,7 +176,8 @@ inline ::std::size_t file_size(::fast_io::basic_win32_family_io_observer<family,
 template <nt_family family, ::std::integral char_type>
 inline ::std::size_t file_size(::fast_io::basic_nt_family_io_observer<family, char_type> observer)
 {
-	return win32::nt::details::nt_load_file_get_file_size(observer.handle);
+	constexpr bool zw{family == nt_family::zw};
+	return win32::nt::details::nt_load_file_get_file_size<zw>(observer.handle);
 }
 #endif
 

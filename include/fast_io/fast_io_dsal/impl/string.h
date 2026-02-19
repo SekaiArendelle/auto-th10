@@ -524,6 +524,11 @@ public:
 		this->assign_impl(other.imp.begin_ptr, static_cast<::std::size_t>(other.imp.curr_ptr - other.imp.begin_ptr));
 		return *this;
 	}
+	inline constexpr basic_string &operator=(string_view_type const &other) noexcept
+	{
+		this->assign(other);
+		return *this;
+	}
 
 private:
 #if __has_cpp_attribute(__gnu__::__cold__)
@@ -625,6 +630,14 @@ public:
 	inline constexpr void append(basic_string const &other) noexcept
 	{
 		this->append_impl(other.data(), other.size());
+	}
+	inline constexpr void append(char_type const *begin, char_type const *end) noexcept
+	{
+		this->append_impl(begin, static_cast<::std::size_t>(end - begin));
+	}
+	inline constexpr void append(char_type const *otherptr, size_type othern) noexcept
+	{
+		this->append_impl(otherptr, othern);
 	}
 
 	inline constexpr void clear() noexcept
@@ -875,7 +888,7 @@ public:
 			return this->erase_impl(const_cast<pointer>(first), const_cast<pointer>(last));
 		}
 	}
-	inline constexpr void erase_index(size_type firstidx, size_type lastidx) noexcept
+	inline constexpr size_type erase_index(size_type firstidx, size_type lastidx) noexcept
 	{
 		auto beginptr{this->imp.begin_ptr};
 		auto currptr{this->imp.curr_ptr};
@@ -885,6 +898,7 @@ public:
 			::fast_io::fast_terminate();
 		}
 		this->erase_impl(beginptr + firstidx, beginptr + lastidx);
+		return firstidx;
 	}
 	inline constexpr iterator erase(const_iterator it) noexcept
 	{
@@ -898,7 +912,7 @@ public:
 			return this->erase_impl(const_cast<pointer>(it));
 		}
 	}
-	inline constexpr void erase_index(size_type idx) noexcept
+	inline constexpr size_type erase_index(size_type idx) noexcept
 	{
 		auto beginptr{this->imp.begin_ptr};
 		auto currptr{this->imp.curr_ptr};
@@ -908,6 +922,7 @@ public:
 			::fast_io::fast_terminate();
 		}
 		this->erase_impl(beginptr + idx);
+		return idx;
 	}
 	inline constexpr void swap(basic_string &other) noexcept
 	{

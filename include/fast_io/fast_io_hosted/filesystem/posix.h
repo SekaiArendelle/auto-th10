@@ -6,6 +6,28 @@ namespace fast_io
 
 namespace details
 {
+#if defined(__CYGWIN__)
+struct my_cygwin_DIR
+{
+  /* This is first to set alignment in non _LIBC case.  */
+  unsigned long	__d_cookie;
+  struct dirent	*__d_dirent;
+  char		*__d_dirname;		/* use for internal caching */
+  ::std::int32_t	 __d_position;		/* used by telldir/seekdir */
+  int		 __d_fd;
+  ::std::uintptr_t	 __d_internal;
+  void		*__handle;
+  void		*__fh;
+  unsigned	 __flags;
+};
+
+using my_cygwin_DIR_may_alias_ptr = 
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+	[[__gnu__::__may_alias__]]
+#endif
+	my_cygwin_DIR *;
+#endif
+
 inline int dirp_to_fd(DIR *dirp) noexcept
 {
 	if (dirp == nullptr)
@@ -13,7 +35,7 @@ inline int dirp_to_fd(DIR *dirp) noexcept
 		return -1;
 	}
 #if defined(__CYGWIN__)
-	return dirp->__d_fd;
+	return reinterpret_cast<my_cygwin_DIR_may_alias_ptr>(dirp)->__d_fd;
 #else
 	return dirfd(dirp);
 #endif
@@ -58,7 +80,7 @@ inline DIR *sys_dup_dir(DIR *dirp)
 	}
 	auto fd{
 #if defined(__CYGWIN__)
-		dirp->__d_fd
+		reinterpret_cast<my_cygwin_DIR_may_alias_ptr>(dirp)->__d_fd
 #else
 		dirfd(dirp)
 #endif
@@ -310,7 +332,7 @@ inline posix_directory_iterator &operator++(posix_directory_iterator &pdit)
 	To fix: avoid setting errno
 	*/
 	errno = 0; // [tls]
-	auto entry{readdir(pdit.dirp)};
+	auto entry{::fast_io::noexcept_call(::readdir, pdit.dirp)};
 	auto en{errno};
 	if (entry == nullptr && en)
 	{
@@ -335,7 +357,7 @@ inline posix_directory_iterator &operator++(posix_directory_iterator &pdit)
 inline posix_directory_iterator begin(posix_directory_generator const &pdg)
 {
 	auto dirp{pdg.dir_fl.dirp};
-	::rewinddir(dirp);
+	::fast_io::noexcept_call(::rewinddir, dirp);
 	posix_directory_iterator pdit{dirp};
 	++pdit;
 	return pdit;
@@ -411,7 +433,7 @@ operator++(basic_posix_recursive_directory_iterator<StackType> &prdit)
 		errno = 0;
 		if (prdit.stack.empty())
 		{
-			auto entry{readdir(prdit.dirp)};
+			auto entry{::fast_io::noexcept_call(::readdir, prdit.dirp)};
 			if (entry == nullptr)
 			{
 				auto en{errno};
@@ -426,7 +448,7 @@ operator++(basic_posix_recursive_directory_iterator<StackType> &prdit)
 		}
 		else
 		{
-			auto entry = readdir(prdit.stack.back().dirp);
+			auto entry = ::fast_io::noexcept_call(::readdir, prdit.stack.back().dirp);
 			if (entry == nullptr)
 			{
 				auto en{errno};
@@ -493,7 +515,7 @@ inline basic_posix_recursive_directory_iterator<StackType>
 begin(basic_posix_recursive_directory_generator<StackType> const &pdg)
 {
 	auto dirp{pdg.dir_fl.dirp};
-	::rewinddir(dirp);
+	::fast_io::noexcept_call(::rewinddir, dirp);
 	basic_posix_recursive_directory_iterator<StackType> pdit{dirp};
 	++pdit;
 	return pdit;
