@@ -1,0 +1,8 @@
+
+# Subject: <type>(<scope>): <subject>
+#
+# Optional body: explain why the change is needed.
+#
+# Optional trailers:
+#   Closes #123
+#   Assisted-by: <model name> [<version if known>]

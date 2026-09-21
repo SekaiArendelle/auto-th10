@@ -1,0 +1,22 @@
+[workspace]
+name = "auto-th10"
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[dependencies]
+python = "3.14.*"
+pip = ">=25,<27"
+cmake = ">=4.2,<5"
+ninja = ">=1.13,<2"
+gcc_win-64 = ">=15,<17"
+scikit-build-core = ">=0.10,<1"
+
+[tasks]
+configure = "cmake --preset dev --fresh"
+build = { cmd = "cmake --build --preset dev", depends-on = ["configure"] }
+test-c = { cmd = "ctest --preset dev", depends-on = ["build"] }
+configure-release = "cmake --preset release --fresh"
+build-release = { cmd = "cmake --build --preset release", depends-on = ["configure-release"] }
+install-python = { cmd = "python -m pip install --no-build-isolation -e .", depends-on = ["build-release"] }
+test-python = { cmd = "python -m unittest discover -s tests/python -v", depends-on = ["install-python"] }
+test = { depends-on = ["test-c", "test-python"] }
