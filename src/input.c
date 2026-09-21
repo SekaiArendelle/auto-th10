@@ -1,22 +1,31 @@
 #include "internal.h"
 
+/* DirectInput games read the keyboard by scan code, so a key injected with only
+ * a virtual key never reaches the game: without KEYEVENTF_SCANCODE the four
+ * arrow keys are delivered as their numeric keypad twins, which the game does
+ * not look at. Every action therefore carries its own scan code, and the four
+ * arrow keys are extended keys (without the E0 prefix they have no scan code of
+ * their own). Verified against th10.exe by injection experiment. */
 typedef struct action_key {
     uint32_t action;
-    WORD virtual_key;
+    WORD scan_code;
+    DWORD flags;
 } action_key;
 
 static const action_key ACTION_KEYS[] = {
-    {TH10_ACTION_LEFT, VK_LEFT},
-    {TH10_ACTION_RIGHT, VK_RIGHT},
-    {TH10_ACTION_UP, VK_UP},
-    {TH10_ACTION_DOWN, VK_DOWN},
-    {TH10_ACTION_SHOOT, 'Z'},
-    {TH10_ACTION_FOCUS, VK_SHIFT},
-    {TH10_ACTION_BOMB, 'X'},
+    {TH10_ACTION_LEFT, 0x4Bu, KEYEVENTF_EXTENDEDKEY},
+    {TH10_ACTION_RIGHT, 0x4Du, KEYEVENTF_EXTENDEDKEY},
+    {TH10_ACTION_UP, 0x48u, KEYEVENTF_EXTENDEDKEY},
+    {TH10_ACTION_DOWN, 0x50u, KEYEVENTF_EXTENDEDKEY},
+    {TH10_ACTION_SHOOT, 0x2Cu, 0}, /* 'Z' */
+    {TH10_ACTION_FOCUS, 0x2Au, 0}, /* left Shift */
+    {TH10_ACTION_BOMB, 0x2Du, 0},  /* 'X' */
 };
 
+#define ACTION_KEY_COUNT (sizeof(ACTION_KEYS) / sizeof(ACTION_KEYS[0]))
+
 th10_input_result th10_set_input(th10_session *session, uint32_t action_mask) {
-    INPUT inputs[sizeof(ACTION_KEYS) / sizeof(ACTION_KEYS[0])];
+    INPUT inputs[ACTION_KEY_COUNT];
     UINT count = 0;
     size_t index;
     const uint32_t supported = TH10_ACTION_LEFT | TH10_ACTION_RIGHT | TH10_ACTION_UP |
@@ -34,15 +43,17 @@ th10_input_result th10_set_input(th10_session *session, uint32_t action_mask) {
     }
 
     ZeroMemory(inputs, sizeof(inputs));
-    for (index = 0; index < sizeof(ACTION_KEYS) / sizeof(ACTION_KEYS[0]); ++index) {
+    for (index = 0; index < ACTION_KEY_COUNT; ++index) {
         const bool was_down = (session->action_mask & ACTION_KEYS[index].action) != 0;
         const bool should_be_down = (action_mask & ACTION_KEYS[index].action) != 0;
         if (was_down == should_be_down) {
             continue;
         }
         inputs[count].type = INPUT_KEYBOARD;
-        inputs[count].ki.wVk = ACTION_KEYS[index].virtual_key;
-        inputs[count].ki.dwFlags = should_be_down ? 0 : KEYEVENTF_KEYUP;
+        inputs[count].ki.wVk = 0; /* KEYEVENTF_SCANCODE requires a zero virtual key */
+        inputs[count].ki.wScan = ACTION_KEYS[index].scan_code;
+        inputs[count].ki.dwFlags =
+            KEYEVENTF_SCANCODE | ACTION_KEYS[index].flags | (should_be_down ? 0u : KEYEVENTF_KEYUP);
         ++count;
     }
 

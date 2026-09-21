@@ -1,5 +1,7 @@
 #include "internal.h"
 
+#include <imm.h>
+
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
@@ -137,25 +139,158 @@ th10_close_result th10_close(th10_session *session) {
     return (th10_close_result){.tag = TH10_CLOSE_SUCCESS};
 }
 
+/* SetForegroundWindow reports success as soon as the request is queued, but the
+ * window only starts receiving keys once it actually owns the keyboard focus: a
+ * DirectInput game stays unacquired until then and reads no keys at all. The
+ * request is also refused outright while another process owns the foreground,
+ * which is the normal case for a command line tool. So poll for the focus
+ * instead of trusting the return value, and attach to the game's input queue as
+ * a fallback, because that is what lets SetFocus hand the keyboard focus over. */
+enum {
+    FOCUS_POLL_INTERVAL_MS = 10,
+    FOCUS_POLL_TIMEOUT_MS = 500,
+    /* Once the focus lands the game still has to notice it and re-acquire its
+     * input device; injecting in the same instant SetForegroundWindow returned
+     * is what made injected keys disappear. */
+    FOCUS_SETTLE_MS = 200,
+};
+
+static bool session_owns_keyboard_focus(const th10_session *session) {
+    GUITHREADINFO info;
+
+    if (GetForegroundWindow() != session->window) {
+        return false;
+    }
+    info.cbSize = sizeof(info);
+    if (!GetGUIThreadInfo(session->thread_id, &info)) {
+        return true;
+    }
+    return info.hwndActive == session->window || info.hwndFocus == session->window;
+}
+
+static bool wait_for_keyboard_focus(const th10_session *session, DWORD timeout_ms) {
+    const ULONGLONG deadline = GetTickCount64() + (ULONGLONG)timeout_ms;
+
+    for (;;) {
+        if (session_owns_keyboard_focus(session)) {
+            return true;
+        }
+        if (GetTickCount64() >= deadline) {
+            return false;
+        }
+        Sleep(FOCUS_POLL_INTERVAL_MS);
+    }
+}
+
+static void attach_and_focus(const th10_session *session) {
+    const DWORD current_thread_id = GetCurrentThreadId();
+
+    if (current_thread_id == session->thread_id) {
+        (void)SetFocus(session->window);
+        return;
+    }
+    if (AttachThreadInput(current_thread_id, session->thread_id, TRUE)) {
+        (void)SetForegroundWindow(session->window);
+        (void)SetFocus(session->window);
+        (void)AttachThreadInput(current_thread_id, session->thread_id, FALSE);
+    }
+}
+
+/* The game's thread carries whatever input layout the user has active, and with
+ * a Chinese IME on it the character keys ('Z' and 'X') are swallowed into a
+ * composition before the game can ever read them, while the arrow keys and Shift
+ * pass straight through - which is what "Z and X never work, the arrows always
+ * do" looks like from the outside. A mouse click hands the input focus over, but
+ * it depends on the cursor actually landing in the client area and is lost as
+ * soon as the user touches their mouse, so the IME is pushed out of the way
+ * directly instead: the window's input context is detached, and the window is
+ * asked to switch to the neutral Latin layout, which DefWindowProc applies.
+ *
+ * This changes the input language of the game window only, not of the user's
+ * other windows; the game reads the keyboard through DirectInput and never
+ * needs an IME of its own. */
+static void detach_ime(const th10_session *session) {
+    HKL latin = LoadKeyboardLayoutW(L"00000409", 0);
+
+    (void)ImmAssociateContext(session->window, NULL);
+    if (latin != NULL) {
+        (void)PostMessageW(session->window, WM_INPUTLANGCHANGEREQUEST, 0, (LPARAM)latin);
+    }
+}
+
+/* SetForegroundWindow and SetFocus move the Win32 foreground window and the
+ * keyboard focus, but the IME follows its own input focus. A real mouse click is
+ * one way to make the system hand that over, so it is used in addition to
+ * detach_ime() above as a belt-and-braces measure. The cursor is parked in the
+ * middle of the client area for the click and moved back afterwards, so the only
+ * lasting effect is that the game owns the input focus. The game itself never
+ * looks at the mouse, so the click is inert. */
+static void hand_input_focus_to_window(const th10_session *session) {
+    INPUT inputs[2];
+    POINT previous_cursor;
+    POINT centre;
+    RECT client;
+    bool restore_cursor;
+
+    if (!GetClientRect(session->window, &client)) {
+        return;
+    }
+    centre.x = (client.right - client.left) / 2;
+    centre.y = (client.bottom - client.top) / 2;
+    if (!ClientToScreen(session->window, &centre)) {
+        return;
+    }
+    restore_cursor = GetCursorPos(&previous_cursor) != FALSE;
+    if (!SetCursorPos(centre.x, centre.y)) {
+        return;
+    }
+
+    ZeroMemory(inputs, sizeof(inputs));
+    inputs[0].type = INPUT_MOUSE;
+    inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    inputs[1].type = INPUT_MOUSE;
+    inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    (void)SendInput(2, inputs, sizeof(INPUT));
+
+    if (restore_cursor) {
+        (void)SetCursorPos(previous_cursor.x, previous_cursor.y);
+    }
+}
+
 th10_focus_result th10_focus(th10_session *session) {
     BOOL permission_result;
+    BOOL set_result;
     DWORD permission_error = ERROR_SUCCESS;
 
     if (session == NULL || session->window == NULL) {
         return (th10_focus_result){.tag = TH10_FOCUS_INVALID_SESSION};
     }
-    permission_result = AllowSetForegroundWindow(ASFW_ANY);
-    if (!permission_result) {
-        permission_error = GetLastError();
-    }
-    if (!SetForegroundWindow(session->window)) {
+
+    if (!session_owns_keyboard_focus(session)) {
+        permission_result = AllowSetForegroundWindow(ASFW_ANY);
         if (!permission_result) {
-            return (th10_focus_result){
-                .tag = TH10_FOCUS_PERMISSION_AND_SET_REJECTED,
-                .value.permission_and_set_rejected = {.win32_error = permission_error},
-            };
+            permission_error = GetLastError();
         }
-        return (th10_focus_result){.tag = TH10_FOCUS_REJECTED};
+        set_result = SetForegroundWindow(session->window);
+        if (!wait_for_keyboard_focus(session, FOCUS_POLL_TIMEOUT_MS)) {
+            attach_and_focus(session);
+            if (!wait_for_keyboard_focus(session, FOCUS_POLL_TIMEOUT_MS)) {
+                if (!set_result && !permission_result) {
+                    return (th10_focus_result){
+                        .tag = TH10_FOCUS_PERMISSION_AND_SET_REJECTED,
+                        .value.permission_and_set_rejected = {.win32_error = permission_error},
+                    };
+                }
+                return (th10_focus_result){.tag = TH10_FOCUS_REJECTED};
+            }
+        }
     }
+
+    /* A window that already owns the Win32 focus can still be missing the input
+     * focus the IME follows, so this runs on every path, not only after the
+     * window had to be brought forward. */
+    detach_ime(session);
+    hand_input_focus_to_window(session);
+    Sleep(FOCUS_SETTLE_MS);
     return (th10_focus_result){.tag = TH10_FOCUS_SUCCESS};
 }

@@ -30,6 +30,55 @@ Install the editable Python package:
 pixi run install-python
 ```
 
+## Manual Testing
+
+`th10ctl` is a small command line driver that talks to a running game through
+the same C API, without going through the Python extension. It is built by
+default (`-DAUTO_TH10_BUILD_TOOLS=OFF` skips it).
+
+One-shot commands attach, act, and detach:
+
+```powershell
+.\build\dev\th10ctl.exe snapshot              # attach, print one snapshot, detach
+.\build\dev\th10ctl.exe -j snapshot           # the same snapshot as JSON on stdout
+.\build\dev\th10ctl.exe -v snapshot           # list every enemy, bullet, and laser
+.\build\dev\th10ctl.exe shot shot.bmp         # capture the game window into a BMP file
+.\build\dev\th10ctl.exe hold "shoot focus" 500  # press for 500 ms, then release
+.\build\dev\th10ctl.exe windows               # list candidate windows when attach fails
+.\build\dev\th10ctl.exe launch <path to>\th10.exe
+```
+
+`shot` goes through `PrintWindow`, so it reads the game window itself instead of
+the screen: it works while the game is in the background or covered over, and
+needs neither the focus nor the foreground. The output is an uncompressed
+32-bit BMP (about 1.2 MB at 640x480), because that is what the Win32 blit path
+produces and the binding carries no image encoder.
+
+`hold` runs the press, the wait, and the release inside a single process. A
+DirectInput game polls its input every frame, so keystrokes whose duration
+depends on how quickly the next command arrives are not reliable.
+
+Holding an action down is therefore one command:
+
+```powershell
+.\build\dev\th10ctl.exe hold "shoot focus" 500   # press both for 500 ms, then release
+.\build\dev\th10ctl.exe watch 100 20            # 20 snapshots, 100 ms apart
+```
+
+`hold` and `watch` take the keyboard focus first (see `th10_focus`): keys only
+reach a DirectInput game while its window owns the focus, and a tool started
+from a terminal does not own it. A Chinese IME sitting on the game's thread also
+swallows the character keys ('Z' and 'X') into a composition before the game can
+read them - the arrow keys and Shift pass through - so `th10_focus` detaches the
+window's input context and switches it to the neutral Latin layout.
+
+No command ever waits for input, so the tool is safe to call from a script:
+without a command it prints its usage, and `watch` reads 10 snapshots by default
+and only runs until interrupted when given an explicit `0`.
+
+Errors go to stderr and results to stdout, so `-j` output can be piped into
+other tools.
+
 ## Game Files
 
 The game executable, data files, saves, and localization patches are not part of this repository and should not be committed to Git. Users must legally obtain the game and launch it before calling `Session`. For downloading Touhou series games (e.g., TH10), you can visit https://cloud.lilywhite.cc/.

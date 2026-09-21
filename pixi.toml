@@ -15,6 +15,8 @@ scikit-build-core = ">=0.10,<1"
 configure = "cmake --preset dev --fresh"
 build = { cmd = "cmake --build --preset dev", depends-on = ["configure"] }
 test-c = { cmd = "ctest --preset dev", depends-on = ["build"] }
+# Run `pixi run build` first; trailing arguments are appended, e.g. `pixi run ctl snapshot`.
+ctl = "build/dev/th10ctl.exe"
 configure-release = "cmake --preset release --fresh"
 build-release = { cmd = "cmake --build --preset release", depends-on = ["configure-release"] }
 install-python = { cmd = "python -m pip install --no-build-isolation -e .", depends-on = ["build-release"] }

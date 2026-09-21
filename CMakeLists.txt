@@ -8,6 +8,7 @@ endif()
 
 option(AUTO_TH10_BUILD_PYTHON "Build the CPython extension" ON)
 option(AUTO_TH10_BUILD_TESTS "Build C tests" ON)
+option(AUTO_TH10_BUILD_TOOLS "Build the th10ctl command line driver" ON)
 
 add_library(th10_core STATIC
     src/capture.c
@@ -20,7 +21,7 @@ target_compile_features(th10_core PUBLIC c_std_17)
 target_include_directories(th10_core
     PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
 )
-target_link_libraries(th10_core PRIVATE kernel32 user32)
+target_link_libraries(th10_core PRIVATE kernel32 user32 imm32)
 set_target_properties(th10_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(MSVC)
@@ -49,6 +50,16 @@ if(AUTO_TH10_BUILD_PYTHON)
         python/auto_th10/types.py
         DESTINATION auto_th10
     )
+endif()
+
+if(AUTO_TH10_BUILD_TOOLS)
+    add_executable(th10ctl tools/th10ctl.c)
+    target_link_libraries(th10ctl PRIVATE th10_core)
+    if(MSVC)
+        target_compile_options(th10ctl PRIVATE /W4 /utf-8)
+    else()
+        target_compile_options(th10ctl PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
 endif()
 
 if(AUTO_TH10_BUILD_TESTS)
