@@ -12,6 +12,7 @@ int main(void) {
     assert(input_result.tag == TH10_INPUT_INVALID_SESSION);
     assert(close_result.tag == TH10_CLOSE_INVALID_SESSION);
     assert(th10_focus(NULL).tag == TH10_FOCUS_INVALID_SESSION);
+    assert(th10_capture(NULL, L"shot.bmp").tag == TH10_CAPTURE_INVALID_ARGUMENT);
     th10_snapshot_init(&snapshot);
     assert(snapshot.enemies.data == NULL);
     assert(snapshot.enemies.size == 0);

@@ -10,6 +10,7 @@ option(AUTO_TH10_BUILD_PYTHON "Build the CPython extension" ON)
 option(AUTO_TH10_BUILD_TESTS "Build C tests" ON)
 
 add_library(th10_core STATIC
+    src/capture.c
     src/input.c
     src/memory.c
     src/session.c

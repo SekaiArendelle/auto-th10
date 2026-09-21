@@ -208,6 +208,30 @@ void th10_snapshot_clear(th10_snapshot *snapshot);
 void th10_snapshot_destroy(th10_snapshot *snapshot);
 th10_snapshot_result th10_read_snapshot(th10_session *session, th10_snapshot *out_snapshot);
 
+typedef enum th10_capture_result_tag {
+    TH10_CAPTURE_SUCCESS = 0,
+    TH10_CAPTURE_INVALID_ARGUMENT,
+    TH10_CAPTURE_CLIENT_RECT_FAILED,
+    TH10_CAPTURE_CREATE_DC_FAILED,
+    TH10_CAPTURE_CREATE_BITMAP_FAILED,
+    TH10_CAPTURE_PRINT_WINDOW_FAILED,
+    TH10_CAPTURE_FILE_OPEN_FAILED,
+    TH10_CAPTURE_FILE_WRITE_FAILED
+} th10_capture_result_tag;
+
+typedef struct th10_capture_result {
+    th10_capture_result_tag tag;
+    uint32_t width;
+    uint32_t height;
+    uint32_t win32_error;
+} th10_capture_result;
+
+/* Captures the client area of the game window into a 32-bit BMP file. The
+ * window is asked to draw itself through PrintWindow, so this reads the game's
+ * own content rather than the screen: it works while the game is in the
+ * background or covered over, and needs neither the focus nor the foreground. */
+th10_capture_result th10_capture(th10_session *session, const wchar_t *path);
+
 #ifdef __cplusplus
 }
 #endif
