@@ -262,6 +262,23 @@ typedef enum th10_state {
  * the menu and game-over answers return immediately. */
 th10_state th10_read_state(th10_session *session);
 
+/* Reports whether the run that just ended set a new high score, which is what
+ * decides how a restart has to be driven.
+ *
+ * The game keeps this in one bit of its event flag word (0x00474CA0, bit 2): it
+ * raises the bit the moment the score climbs past 0x00474C40, so the bit is set
+ * well before the run is over and stays set while the game waits for a name.
+ * Screens cannot tell the two endings apart - a plain game over and the name
+ * entry both run inside screen family 0x7 with no other tell - so this bit is
+ * the only signal available. After TH10_STATE_GAME_OVER, a set bit means the
+ * game is asking for a name and the caller has to type one, while a clear bit
+ * means confirming the game over menu is enough.
+ *
+ * Returns false when the flag is clear as well as when the read fails. Both mean
+ * the caller should not expect a name prompt, so the two need not be told apart
+ * for this question. */
+bool th10_read_record_broken(th10_session *session);
+
 #ifdef __cplusplus
 }
 #endif

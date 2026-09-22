@@ -11,6 +11,9 @@ enum {
     /* Long enough for a running stage to have advanced by several frames, short
      * enough that both reads still describe the same moment. */
     STATE_SAMPLE_INTERVAL_MS = 120,
+    /* Raised by the game the moment the score passes the high score, so it
+     * says the run that just ended is owed a name entry. */
+    FLAG_RECORD_BROKEN = 0x4u,
 };
 
 /* The screen family. It only separates "title and menus" from "a stage", which
@@ -67,4 +70,16 @@ th10_state th10_read_state(th10_session *session) {
         return TH10_STATE_UNKNOWN;
     }
     return frames_earlier != frames_later ? TH10_STATE_PLAYING : TH10_STATE_PAUSED;
+}
+
+bool th10_read_record_broken(th10_session *session) {
+    uint32_t flags;
+
+    if (session == NULL) {
+        return false;
+    }
+    if (!th10_read_memory(session, TH10_FLAGS_ADDRESS, &flags, sizeof(flags), NULL)) {
+        return false;
+    }
+    return (flags & FLAG_RECORD_BROKEN) != 0;
 }

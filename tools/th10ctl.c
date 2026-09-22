@@ -64,6 +64,9 @@ static void print_usage(void) {
            "                            receives the keys injected by hold\n"
            "  state                     report the screen: menu / playing / paused /\n"
            "                            game over\n"
+           "  record                    report whether the run set a new high score,\n"
+           "                            which decides whether a restart after a game\n"
+           "                            over has to enter a name\n"
            "  snapshot                  read and print one snapshot\n"
            "  shot [file.bmp]           capture the game window (works in the background)\n"
            "  hold <spec> <ms>          press actions for <ms>, then release them again\n"
@@ -700,6 +703,24 @@ static bool command_state(void) {
     return state != TH10_STATE_UNKNOWN;
 }
 
+/* Reports whether the run that just ended set a new high score. Read after a
+ * game over, it says whether the game will ask for a name, which is the one
+ * thing separating the two ways a run can end. */
+static bool command_record(void) {
+    bool broken;
+
+    if (!attach_session(ATTACH_NORMAL)) {
+        return false;
+    }
+    broken = th10_read_record_broken(g_session);
+    if (g_json) {
+        printf("{\"record_broken\":%s}\n", broken ? "true" : "false");
+    } else {
+        printf("record_broken: %s\n", broken ? "yes" : "no");
+    }
+    return true;
+}
+
 static bool command_info(void) {
     if (!attach_session(ATTACH_NORMAL)) {
         return false;
@@ -1021,6 +1042,8 @@ int main(int argc, char **argv) {
         status = command_info() ? 0 : 1;
     } else if (strcmp(command, "state") == 0) {
         status = command_state() ? 0 : 1;
+    } else if (strcmp(command, "record") == 0) {
+        status = command_record() ? 0 : 1;
     } else if (strcmp(command, "shot") == 0) {
         status = command_capture(index < argc ? argv[index] : NULL) ? 0 : 1;
     } else if (strcmp(command, "windows") == 0) {

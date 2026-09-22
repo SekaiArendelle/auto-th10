@@ -32,6 +32,7 @@ bool th10_read_memory(th10_session *session, uintptr_t address, void *output, si
  * game reads, so using it inverts every decision. */
 static const uintptr_t TH10_SCENE_ADDRESS = 0x00491FB8u;        /* 0x4 title and menus, 0x7 a stage */
 static const uintptr_t TH10_LIVES_ADDRESS = 0x00474C70u;        /* 2, 1, 0 alive, then -1 once over */
+static const uintptr_t TH10_FLAGS_ADDRESS = 0x00474CA0u;        /* event flags, bit 2 = new record */
 static const uintptr_t TH10_STAGE_FRAMES_ADDRESS = 0x00474C88u; /* advances while playing, frozen
                                                                  * while paused */
 static const uintptr_t TH10_SCORE_ADDRESS = 0x00474C44u;
