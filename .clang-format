@@ -65,4 +65,4 @@ DerivePointerAlignment: false
 NamespaceIndentation: None
 
 # Pointer and reference alignment
-PointerAlignment: Left
+PointerAlignment: Right
