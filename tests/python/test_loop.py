@@ -1,14 +1,13 @@
 import unittest
 
-from auto_th10 import Action, State, Th10Env
+from auto_th10 import Action, Th10Env
 from fakes import FakeSession, make_snapshot
 from training.loop import run_episode, run_episodes
 from training.policy import FixedPolicy
 
 
 def build_env(*snapshots) -> Th10Env:
-    session = FakeSession(states=(State.PLAYING,), snapshots=snapshots)
-    return Th10Env(session=session)
+    return Th10Env(session=FakeSession(snapshots=snapshots))
 
 
 class RunEpisodeTests(unittest.TestCase):

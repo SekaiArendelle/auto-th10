@@ -6,6 +6,12 @@ stage, picking a shot type and leaving the pause menu stay with the player,
 because those are choices a script has no business making. That boundary is what
 keeps a wrong key press from landing on a menu.
 
+It asks the game's own data rather than a summary of it: the screen family (one
+read, no waiting), the snapshot (the run's numbers) and the stage frame counter,
+sampled twice, for the one question no single read can answer. The coarse state
+word that used to stand in for all three is not even bound in Python - see
+`session.Session` - because it blocks for about 120 ms and says less.
+
 See training/README.md for how the layers above this one fit together.
 """
 
@@ -17,8 +23,14 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 from . import restart
-from .session import Action, Session, State
+from .session import Action, Scene, Session
 from .types import Snapshot
+
+PAUSE_SAMPLE_SECONDS = 0.12
+"""How far apart the two frame-counter samples are when asking whether a stage is
+frozen: the same 120 ms the C side's own state read uses, and for the same reason
+- long enough for a running stage to have advanced several frames, short enough
+that both reads still describe the same moment."""
 
 
 class OnDeath(Enum):
@@ -98,13 +110,6 @@ class NotInStage(RuntimeError):
     """
 
 
-def _not_in_stage(state: State) -> str:
-    return (
-        f"the game is in {state.name.lower()}: enter a stage and leave the pause menu before "
-        "starting the agent"
-    )
-
-
 def score_delta(previous: Snapshot, current: Snapshot) -> float:
     """The default reward: how much the score moved.
 
@@ -147,32 +152,11 @@ class Th10Env:
             self._require_startable()
 
     def require_in_stage(self) -> None:
-        """Raise NotInStage unless the game is in a playing stage.
-
-        Asking for the screen costs about 120 ms, because th10_read_state() has
-        to sample the frame counter twice to tell playing from paused, so this is
-        a slow-path check: the constructor and reset() make it, the step loop
-        never does.
-        """
-        self._require_playing(self.session.state())
-
-    @staticmethod
-    def _require_playing(state: State) -> None:
-        if state is not State.PLAYING:
-            raise NotInStage(_not_in_stage(state))
-
-    def _require_startable(self) -> None:
-        """Raise NotInStage unless the agent could take over from where the game is.
-
-        A finished run counts: an ending that was already on screen when the agent
-        started was left there by an earlier attempt, and clearing it is one key
-        press rather than a choice. A menu or the pause menu does not, because
-        leaving those is the player's decision.
-        """
-        state = self.session.state()
-        if state in (State.PLAYING, State.GAME_OVER):
-            return
-        raise NotInStage(_not_in_stage(state))
+        """Raise NotInStage unless the game is in a running stage."""
+        snapshot = self._look()
+        if snapshot is None or snapshot.game_over:
+            raise self._refuse()
+        self._require_not_frozen()
 
     def reset(self) -> tuple[Observation, dict[str, object]]:
         """Starts an episode, clearing or restarting whatever ended before it.
@@ -182,19 +166,24 @@ class Th10Env:
         ending this environment produced is different: OnDeath.STOP leaves it
         there, and reset() then refuses to start another run on top of it.
         """
-        state = self.session.state()
-        if state is State.GAME_OVER:
+        snapshot = self._look()
+        if snapshot is not None and snapshot.game_over:
             if self._started and self.settings.on_death is not OnDeath.RESTART:
                 raise NotInStage("the run is over and OnDeath is STOP: restart it in the game")
             self._leave_game_over()
-            state = self.session.state()
-        self._require_playing(state)
+            snapshot = self._look()
+        if snapshot is None or snapshot.game_over:
+            raise self._refuse()
+        self._require_not_frozen()
         self.session.focus()
-        self._snapshot = self.session.snapshot()
+        # The snapshot read on the way in is the one to keep. focus() hands the
+        # window the keyboard and changes nothing about the run, so reading again
+        # would only move the moment this observation describes.
+        self._snapshot = snapshot
         self._frames = self.session.stage_frames()
         self._steps = 0
         self._started = True
-        return Observation(snapshot=self._snapshot), {}
+        return Observation(snapshot=snapshot), {}
 
     def step(self, action: Action | int) -> tuple[Observation, float, bool, bool, dict[str, object]]:
         """Holds `action`, waits for the game to advance a frame, then reads it.
@@ -202,7 +191,14 @@ class Th10Env:
         Waiting for the counter instead of sleeping is what keeps the loop
         aligned with the game: the same decisions then cover the same frames, and
         a game that has stopped is noticed rather than fed keys.
+
+        reset() has to come first. The constructor only asks the screen family, so
+        a stage that turns out to be frozen, or to have no run behind it, gets past
+        it; reset() is what refuses those, and this guard is what keeps a key from
+        being injected by a caller that skipped it.
         """
+        if not self._started:
+            raise NotInStage("the episode has not started: call reset() before step()")
         previous = self._snapshot
         self.session.set_input(action)
         self._frames = self._wait_for_next_frame()
@@ -233,12 +229,71 @@ class Th10Env:
     def __exit__(self, *args: object) -> None:
         self.close()
 
+    def _look(self) -> Snapshot | None:
+        """The run as it is right now, or None when there is no run to read.
+
+        This is how the layer asks "is there a stage at all": the read fails
+        exactly when the stage object is gone, which covers the title screen, the
+        setup screens and the gaps between runs in one test. It also costs
+        nothing extra - step() reads a snapshot every frame anyway - where the
+        state word charges 120 ms to say something coarser about the same game.
+        """
+        try:
+            return self.session.snapshot()
+        except RuntimeError:
+            return None
+
+    def _require_startable(self) -> None:
+        """Raise NotInStage unless the agent could take over from where the game is.
+
+        The constructor asks the cheap half of the question - the screen family,
+        one read of one word - and leaves the rest to reset(), which is where a run
+        is actually needed. A menu is refused here; a stage that turns out to be
+        frozen, or to have no run behind it at all, is refused when the episode
+        starts, because that is when keys would start arriving.
+        """
+        if self.session.scene() is not Scene.STAGE:
+            raise self._refuse()
+
+    def _require_not_frozen(self) -> None:
+        """Raise NotInStage when the stage clock has stopped.
+
+        Playing and paused share a screen family and the game raises no flag that
+        a single read could see, so this is the one question here that needs two
+        samples. It is asked once per episode rather than once per step, and the
+        step loop does not need it at all - it waits on the same counter.
+        """
+        earlier = self.session.stage_frames()
+        time.sleep(PAUSE_SAMPLE_SECONDS)
+        if self.session.stage_frames() == earlier:
+            raise NotInStage(
+                f"the stage frame counter is not moving (stuck at {earlier}): "
+                "the game is paused, loading or gone"
+            )
+
+    def _refuse(self) -> NotInStage:
+        """The refusal to run, worded from the one read that is free.
+
+        There are two ways to get here - the game is in the menus, or the family
+        reads as a stage while no run is behind it - and the family is enough to
+        tell them apart. It used to name the fine-grained screen instead, which
+        cost the state word's 120 ms; the episode lifecycle does not bind that word
+        at all (see `session.Session`), and an error message is not a reason to
+        bring it back.
+        """
+        where = "in the menus" if self.session.scene() is Scene.MENU else "in a stage with no run"
+        return NotInStage(
+            f"the game is {where}: enter a stage and leave the pause menu before starting the agent"
+        )
+
     def _wait_for_next_frame(self) -> int:
         """Waits for the game to move on, or hands the step back when it cannot.
 
         A run that is over stops advancing the stage clock, so the wait would
         time out on the ending rather than read it: the caller is handed back and
-        the snapshot that step() reads next is what says the run is over.
+        the snapshot that step() reads next is what says the run is over. Anything
+        else that stops the clock says which it was, because the screen family is
+        free to read and tells a pause from a trip back to the menus.
         """
         deadline = time.monotonic() + self.frame_timeout_s
         while True:
@@ -246,11 +301,17 @@ class Th10Env:
             if frames != self._frames:
                 return frames
             if time.monotonic() >= deadline:
-                if self.session.snapshot().game_over:
+                snapshot = self._look()
+                if snapshot is not None and snapshot.game_over:
                     return frames
+                if self.session.scene() is not Scene.STAGE:
+                    raise NotInStage(
+                        f"the game left the stage: the frame counter stayed at {frames} for "
+                        f"{self.frame_timeout_s:g} s"
+                    )
                 raise NotInStage(
                     f"the stage frame counter stayed at {frames} for {self.frame_timeout_s:g} s: "
-                    "the game is paused, in a menu, or gone"
+                    "the game is paused, loading, or gone"
                 )
             time.sleep(self.poll_seconds)
 

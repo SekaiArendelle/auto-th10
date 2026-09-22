@@ -63,6 +63,8 @@ static void print_usage(void) {
            "  info                      attach to the game and report the session\n"
            "  focus                     hand the game the keyboard focus, so that it\n"
            "                            receives the keys injected by hold\n"
+           "  scene                     report the screen family: menu or stage (one\n"
+           "                            read, no waiting)\n"
            "  state                     report the screen: menu / playing / paused /\n"
            "                            game over\n"
            "  record                    report whether the run set a new high score,\n"
@@ -169,6 +171,15 @@ static const char *state_name(th10_state state) {
         RETURN_TAG_NAME(TH10_STATE_GAME_OVER)
     }
     return "TH10_STATE_UNKNOWN";
+}
+
+static const char *scene_name(th10_scene scene) {
+    switch (scene) {
+        RETURN_TAG_NAME(TH10_SCENE_UNKNOWN)
+        RETURN_TAG_NAME(TH10_SCENE_MENU)
+        RETURN_TAG_NAME(TH10_SCENE_STAGE)
+    }
+    return "TH10_SCENE_UNKNOWN";
 }
 
 #undef RETURN_TAG_NAME
@@ -706,6 +717,23 @@ static bool command_state(void) {
     return state != TH10_STATE_UNKNOWN;
 }
 
+/* Reports the family of screen the game is on: one read of one word, no waiting,
+ * and the cheap way to ask whether keys would land on a stage at all. */
+static bool command_scene(void) {
+    th10_scene scene;
+
+    if (!attach_session(ATTACH_NORMAL)) {
+        return false;
+    }
+    scene = th10_read_scene(g_session);
+    if (g_json) {
+        printf("{\"scene\":\"%s\"}\n", scene_name(scene));
+    } else {
+        printf("scene: %s\n", scene_name(scene));
+    }
+    return scene != TH10_SCENE_UNKNOWN;
+}
+
 /* Reports whether the run that just ended set a new high score. Read after a
  * game over, it says whether the game will ask for a name, which is the one
  * thing separating the two ways a run can end. */
@@ -1069,6 +1097,8 @@ int main(int argc, char **argv) {
         status = command_focus() ? 0 : 1;
     } else if (strcmp(command, "info") == 0) {
         status = command_info() ? 0 : 1;
+    } else if (strcmp(command, "scene") == 0) {
+        status = command_scene() ? 0 : 1;
     } else if (strcmp(command, "state") == 0) {
         status = command_state() ? 0 : 1;
     } else if (strcmp(command, "record") == 0) {

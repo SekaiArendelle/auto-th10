@@ -72,28 +72,40 @@ its first entry, the game over menu on its last), and they share one of their th
 labels. Neither the look of the menu nor the entry count says which one is up;
 `TH10_STATE_PAUSED` does.
 
-## What the state word can and cannot tell you
+## Asking the game where it is
 
-- `TH10_STATE_PLAYING` means the stage clock is running. It is **not** proof that
-  somebody is playing: the title screen's own demo advances the same clock and
-  reads as `PLAYING` too. The demo is only distinguishable on screen, where it
-  draws a `Demo Play` caption over the field - and a snapshot taken during one
-  reports the demo's own saved state, `lives` at 9 and `power` at its maximum,
-  with the ship moving by itself. A reader that only looks at values will take all
-  of that for a real run.
-- `TH10_STATE_PAUSED` is what a paused stage reports: `th10_read_state()` samples
-  the frame counter twice, about 120 ms apart, to tell playing from paused. For a
-  driver that only needs that answer in a loop, `th10_read_stage_frames()`
-  (`Session.stage_frames()`) gives it without the wait.
+Three reads, and the rule is to use the cheapest one that answers the question:
+
+| Question | Read | Cost |
+| --- | --- | --- |
+| A stage at all, or the menus? | `th10_read_scene()` / `Session.scene()` | one word, nothing to wait for |
+| Is there a run, and is it over? | `th10_read_snapshot()` | one pass over the game's live objects |
+| Still running, or frozen? | `th10_read_stage_frames()` twice | two reads, and the gap between them is yours to choose |
+
+`th10_read_state()` (and `th10ctl state`) answers all three at once, and it is the
+wrong tool for a driver: it blocks for about 120 ms whenever the answer is "playing
+or paused", and what it returns is coarser than the snapshot sitting beside it. It
+is kept for people and for one-shot diagnostics, and the Python binding does not
+offer it at all - `Session` deliberately has no `state()`, so an agent cannot
+reach for it by accident.
+
+What each value can and cannot say, all measured:
+
+- `TH10_STATE_PLAYING` is what the title screen's own demo reports as well, so it
+  is not proof that anybody is playing. The demo draws a `Demo Play` caption over
+  the field, and a snapshot taken during one carries the demo's own saved state:
+  `lives` at 9, full power, the ship moving by itself.
+- `TH10_STATE_PAUSED` is what a frozen stage reports - which is also what a stage
+  that is still loading reports, since both are "the frame counter did not move".
 - `TH10_STATE_GAME_OVER` freezes the stage clock (measured: 4720 twice, half a
   second apart). The screen it belongs to still draws its `Player ★★` header, so
   the picture is not what to trust here.
-- The screens between runs have no stage behind them, so `th10_read_snapshot()`
-  fails and the binding raises `RuntimeError: gameplay is not active`. That is not
-  a fault to report - it is the answer "the game is between runs", which is how
-  `restart.leave_game_over()` reads it.
-- `TH10_STATE_MENU` covers the title menu, RANK, PLAYER SELECT, WEAPON SELECT and
-  the screens between runs alike, so it says nothing about which one is up.
+- `TH10_STATE_MENU` is six screens under one value: the title, RANK, PLAYER
+  SELECT, WEAPON SELECT, the replay list, and the name entry.
+- The screens between runs have no stage object behind them, so a snapshot read
+  fails there - `RuntimeError: gameplay is not active` from Python. That is not a
+  fault to report: it is the answer "the game is between runs", and it is how the
+  episode lifecycle tells a stage from everything else.
 
 ## Title menu
 

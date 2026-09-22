@@ -10,7 +10,7 @@ from .env import (
     Th10Env,
     score_delta,
 )
-from .session import Action, Session, State
+from .session import Action, Scene, Session
 from .types import EnemyBullet, EnemyLaser, Point, Rect, Snapshot
 
 __all__ = [
@@ -25,10 +25,10 @@ __all__ = [
     "OnNameEntry",
     "Point",
     "Rect",
+    "Scene",
     "Session",
     "Settings",
     "Snapshot",
-    "State",
     "TRAIN_PRESET",
     "Th10Env",
     "score_delta",

@@ -16,20 +16,30 @@ enum {
     FLAG_RECORD_BROKEN = 0x4u,
 };
 
-/* The screen family. It only separates "title and menus" from "a stage", which
- * is why it is not part of the public API: every finer distinction a caller
- * could want comes out of th10_read_state() instead. Returns 0 on failure. */
-static uint32_t read_scene(th10_session *session) {
+/* The screen family, as one read and nothing more. It answers "menu or stage" and
+ * refuses to answer anything finer: every finer distinction a caller could want
+ * comes out of the snapshot, the frame counter, or th10_read_state() - which
+ * opens with this same word and then spends its 120 ms on what is left. */
+th10_scene th10_read_scene(th10_session *session) {
     uint32_t scene = 0;
 
-    if (!th10_read_memory(session, TH10_SCENE_ADDRESS, &scene, sizeof(scene), NULL)) {
-        return 0;
+    if (session == NULL) {
+        return TH10_SCENE_UNKNOWN;
     }
-    return scene;
+    if (!th10_read_memory(session, TH10_SCENE_ADDRESS, &scene, sizeof(scene), NULL)) {
+        return TH10_SCENE_UNKNOWN;
+    }
+    if (scene == SCENE_MENU) {
+        return TH10_SCENE_MENU;
+    }
+    if (scene == SCENE_STAGE) {
+        return TH10_SCENE_STAGE;
+    }
+    return TH10_SCENE_UNKNOWN;
 }
 
 th10_state th10_read_state(th10_session *session) {
-    uint32_t scene;
+    th10_scene scene;
     uint32_t lives;
     uint32_t frames_earlier;
     uint32_t frames_later;
@@ -38,14 +48,11 @@ th10_state th10_read_state(th10_session *session) {
         return TH10_STATE_UNKNOWN;
     }
 
-    scene = read_scene(session);
-    if (scene == 0) {
-        return TH10_STATE_UNKNOWN;
-    }
-    if (scene == SCENE_MENU) {
+    scene = th10_read_scene(session);
+    if (scene == TH10_SCENE_MENU) {
         return TH10_STATE_MENU;
     }
-    if (scene != SCENE_STAGE) {
+    if (scene != TH10_SCENE_STAGE) {
         return TH10_STATE_UNKNOWN;
     }
 

@@ -7,9 +7,9 @@ the restart tests need them.
 
 from __future__ import annotations
 
-from auto_th10 import EnemyBullet, EnemyLaser, Observation, Point, Rect, Snapshot, State
+from auto_th10 import EnemyBullet, EnemyLaser, Observation, Point, Rect, Scene, Snapshot
 
-DEFAULT_STATE = State.PLAYING
+DEFAULT_SCENE = Scene.STAGE
 
 
 def make_snapshot(
@@ -59,32 +59,40 @@ class FakeSession:
     Each read has a queue whose last entry repeats forever, so a test scripts
     only the answers it cares about. The frame counter advances by one on every
     read, which is what a running stage looks like to the environment; pass
-    frame_step=0 to look like a paused one.
+    frame_step=0 to look like a paused one, or freeze_after=N to look like one
+    that pauses after N reads.
+
+    There is no state() here either, deliberately: the real Session does not offer
+    one (see its docstring), and a fake that did would let a test pass on a call
+    the production path cannot make.
     """
 
     def __init__(
         self,
         *,
-        states: tuple[State, ...] = (DEFAULT_STATE,),
+        scenes: tuple[Scene, ...] = (DEFAULT_SCENE,),
         snapshots: tuple[Snapshot, ...] = (),
         frame_step: int = 1,
         record_broken: bool = False,
         no_stage_for: int = 0,
+        freeze_after: int = 0,
     ) -> None:
-        self._states = list(states) or [DEFAULT_STATE]
+        self._scenes = list(scenes) or [DEFAULT_SCENE]
         self._snapshots = list(snapshots) or [make_snapshot()]
         self._frame_step = frame_step
         self._frame_value = 1000
+        self._frame_reads = 0
+        self._freeze_after = freeze_after
         self._no_stage = no_stage_for
         self.record_broken_value = record_broken
         self.inputs: list[object] = []
         self.focus_calls = 0
         self.closed = False
 
-    def state(self) -> State:
-        if len(self._states) > 1:
-            return self._states.pop(0)
-        return self._states[0]
+    def scene(self) -> Scene:
+        if len(self._scenes) > 1:
+            return self._scenes.pop(0)
+        return self._scenes[0]
 
     def snapshot(self) -> Snapshot:
         if self._no_stage > 0:
@@ -95,6 +103,9 @@ class FakeSession:
         return self._snapshots[0]
 
     def stage_frames(self) -> int:
+        self._frame_reads += 1
+        if self._freeze_after and self._frame_reads > self._freeze_after:
+            self._frame_step = 0
         self._frame_value += self._frame_step
         return self._frame_value
 

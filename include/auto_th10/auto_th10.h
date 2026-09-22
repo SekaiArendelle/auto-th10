@@ -425,6 +425,36 @@ typedef struct th10_capture_result {
  */
 th10_capture_result th10_capture(th10_session *session, const wchar_t *path);
 
+/** @brief The family of screen the game is on, straight from its state word. */
+typedef enum th10_scene {
+    TH10_SCENE_UNKNOWN = 0, /**< the word could not be read, or holds no known value */
+    TH10_SCENE_MENU, /**< the title screen and the menus around a run */
+    TH10_SCENE_STAGE /**< a stage: playing, paused and over all look alike here */
+} th10_scene;
+
+/**
+ * @brief Reports which family of screen the game is on.
+ *
+ * One word decides it (0x00491FB8): 0x4 is the title and the menus, 0x7 is a
+ * stage, and anything else is a value this build does not know. It is a single
+ * read with no waiting, which makes it the cheap way to ask "is the game in a
+ * stage at all". th10_read_state() opens with exactly this question and then
+ * spends its 120 ms on the part this cannot answer.
+ *
+ * What it deliberately does not say is anything finer, and a caller should not
+ * ask it to: a menu is six screens under one value (title, RANK, PLAYER SELECT,
+ * WEAPON SELECT, the replay list, the name entry), and a stage is playing, paused
+ * and over alike. For those, read the run's own numbers with
+ * th10_read_snapshot(), and sample th10_read_stage_frames() twice to tell playing
+ * from paused - which is a question about two moments in time, so no single read
+ * can answer it.
+ *
+ * @param session The session from th10_open().
+ * @return The family, or TH10_SCENE_UNKNOWN when the session is NULL or the word
+ *         could not be read.
+ */
+th10_scene th10_read_scene(th10_session *session);
+
 /** @brief The screen the game is on, as read from the game's own state words. */
 typedef enum th10_state {
     TH10_STATE_UNKNOWN = 0, /**< the state could not be determined */
@@ -448,6 +478,10 @@ typedef enum th10_state {
  * alone decides game over, and the frame counter is the only thing that can
  * tell playing from paused - both are family 0x7 and the pause menu sets no
  * flag that a single sample could read.
+ *
+ * The first of those three is exposed on its own as th10_read_scene(), which is
+ * one read with nothing to wait for; a caller that only needs "menu or stage"
+ * should ask that rather than pay for this one.
  *
  * @param session The session from th10_open().
  * @return One of the five states, or TH10_STATE_UNKNOWN when a read failed or

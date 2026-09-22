@@ -368,23 +368,35 @@ static PyObject *session_snapshot(py_th10_session *self, PyObject *ignored) {
     return result;
 }
 
-static PyObject *session_state(py_th10_session *self, PyObject *ignored) {
+/* There is deliberately no binding for th10_read_state() here.
+ *
+ * It answers three questions at once and blocks for about 120 ms when the answer
+ * is "playing or paused", because telling those apart takes two samples of the
+ * frame counter. What it returns is also coarser than the reads that sit beside
+ * it: MENU is six screens under one value, a stage is playing, paused and over
+ * alike, and the title screen's own demo reports PLAYING. A Python agent gets
+ * more, sooner, from scene(), snapshot() and stage_frames(), which is why the
+ * episode lifecycle decides from those and this entry point stays unbound. The
+ * state word is kept for people and for th10ctl; see docs/game-ui.md. */
+
+static PyObject *session_scene(py_th10_session *self, PyObject *ignored) {
     static const char *names[] = {
-        "TH10_STATE_UNKNOWN", "TH10_STATE_MENU",   "TH10_STATE_PLAYING",
-        "TH10_STATE_PAUSED",  "TH10_STATE_GAME_OVER",
+        "TH10_SCENE_UNKNOWN",
+        "TH10_SCENE_MENU",
+        "TH10_SCENE_STAGE",
     };
-    th10_state state;
+    th10_scene scene;
     (void)ignored;
 
     if (ensure_open(self) < 0) {
         return NULL;
     }
-    state = th10_read_state(self->session);
-    if ((unsigned int)state >= sizeof(names) / sizeof(names[0])) {
-        PyErr_SetString(PyExc_RuntimeError, "invalid th10_read_state result");
+    scene = th10_read_scene(self->session);
+    if ((unsigned int)scene >= sizeof(names) / sizeof(names[0])) {
+        PyErr_SetString(PyExc_RuntimeError, "invalid th10_read_scene result");
         return NULL;
     }
-    return PyUnicode_FromString(names[(unsigned int)state]);
+    return PyUnicode_FromString(names[(unsigned int)scene]);
 }
 
 static PyObject *session_record_broken(py_th10_session *self, PyObject *ignored) {
@@ -451,8 +463,8 @@ static PyMethodDef session_methods[] = {
     {"focus", (PyCFunction)session_focus, METH_NOARGS, "Bring the game window to the foreground."},
     {"set_input", (PyCFunction)session_set_input, METH_O, "Set the currently held action mask."},
     {"snapshot", (PyCFunction)session_snapshot, METH_NOARGS, "Read one complete gameplay snapshot."},
-    {"state", (PyCFunction)session_state, METH_NOARGS,
-     "Report the screen: TH10_STATE_MENU / PLAYING / PAUSED / GAME_OVER / UNKNOWN."},
+    {"scene", (PyCFunction)session_scene, METH_NOARGS,
+     "Report the screen family: TH10_SCENE_MENU / STAGE / UNKNOWN. One read, no wait."},
     {"record_broken", (PyCFunction)session_record_broken, METH_NOARGS,
      "Report whether the run set a new high score, so a restart owes a name entry."},
     {"stage_frames", (PyCFunction)session_stage_frames, METH_NOARGS,

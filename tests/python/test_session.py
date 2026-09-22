@@ -1,32 +1,29 @@
 import unittest
 from unittest import mock
 
-from auto_th10 import Action, State
+from auto_th10 import Action, Scene
 from auto_th10 import session as session_module
 
 
-class StateTests(unittest.TestCase):
+class SceneTests(unittest.TestCase):
+    """The family word: one read, no waiting, and the same exact-string rule."""
+
     def test_members_carry_the_native_names(self) -> None:
-        # The C side reports these exact strings, so a typo here would only show
-        # up against a running game; pin them down instead.
         self.assertEqual(
-            {member.value for member in State},
+            {member.value for member in Scene},
             {
-                "TH10_STATE_UNKNOWN",
-                "TH10_STATE_MENU",
-                "TH10_STATE_PLAYING",
-                "TH10_STATE_PAUSED",
-                "TH10_STATE_GAME_OVER",
+                "TH10_SCENE_UNKNOWN",
+                "TH10_SCENE_MENU",
+                "TH10_SCENE_STAGE",
             },
         )
 
     def test_members_round_trip_from_text(self) -> None:
-        for member in State:
-            self.assertIs(State(member.value), member)
+        for member in Scene:
+            self.assertIs(Scene(member.value), member)
 
     def test_is_a_str_so_it_compares_with_the_raw_value(self) -> None:
-        self.assertEqual(State.PLAYING, "TH10_STATE_PLAYING")
-        self.assertEqual(State.GAME_OVER.value, "TH10_STATE_GAME_OVER")
+        self.assertEqual(Scene.STAGE, "TH10_SCENE_STAGE")
 
 
 class ActionTests(unittest.TestCase):
