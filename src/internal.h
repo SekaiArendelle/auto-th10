@@ -17,14 +17,12 @@ struct th10_session {
     uint32_t action_mask;
 };
 
-typedef struct th10_memory_result {
-    bool success;
-    uintptr_t address;
-    size_t requested_size;
-    size_t bytes_read;
-    uint32_t win32_error;
-} th10_memory_result;
+/* Reads and reports whether it succeeded. Pass NULL for `failure` when only the
+ * outcome matters; otherwise it is filled in with the address, the sizes and
+ * GetLastError() of the attempt - the same shape th10_snapshot_result carries,
+ * so the two do not have to be translated into each other. */
+bool th10_read_memory(th10_session *session, uintptr_t address, void *output, size_t size,
+                      th10_read_failure *failure);
 
-th10_memory_result th10_read_memory(th10_session *session, uintptr_t address, void *output, size_t size);
 
 #endif

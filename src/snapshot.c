@@ -17,21 +17,14 @@ static th10_snapshot_result snapshot_not_in_game(void) {
     return (th10_snapshot_result){.tag = TH10_SNAPSHOT_NOT_IN_GAME};
 }
 
+/* Reads and reports whether it succeeded, recording the failure details into the
+ * snapshot result so the caller can hand the whole result back. */
 static bool read_value(th10_session *session, uintptr_t address, void *output, size_t size,
                        th10_snapshot_result *failure) {
-    const th10_memory_result result = th10_read_memory(session, address, output, size);
-    if (result.success) {
+    if (th10_read_memory(session, address, output, size, &failure->value.read_failed)) {
         return true;
     }
-    *failure = (th10_snapshot_result){
-        .tag = TH10_SNAPSHOT_READ_FAILED,
-        .value.read_failed = {
-            .address = result.address,
-            .requested_size = result.requested_size,
-            .bytes_read = result.bytes_read,
-            .win32_error = result.win32_error,
-        },
-    };
+    failure->tag = TH10_SNAPSHOT_READ_FAILED;
     return false;
 }
 

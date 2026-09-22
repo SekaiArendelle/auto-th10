@@ -1,22 +1,28 @@
 #include "internal.h"
 
-th10_memory_result th10_read_memory(th10_session *session, uintptr_t address, void *output, size_t size) {
+/* Reads and returns whether it succeeded, so callers that only branch on the
+ * outcome stay one line. The optional `failure` out-parameter carries why it
+ * did not - only the callers that report errors to a user ask for it. */
+bool th10_read_memory(th10_session *session, uintptr_t address, void *output, size_t size,
+                      th10_read_failure *failure) {
     SIZE_T bytes_read = 0;
-    th10_memory_result result = {
-        .success = false,
-        .address = address,
-        .requested_size = size,
-    };
 
+    if (failure != NULL) {
+        *failure = (th10_read_failure){
+            .address = address,
+            .requested_size = size,
+        };
+    }
     if (session == NULL || session->process == NULL || output == NULL || size == 0) {
-        return result;
+        return false;
     }
-    if (!ReadProcessMemory(session->process, (LPCVOID)address, output, size, &bytes_read) || bytes_read != size) {
-        result.bytes_read = bytes_read;
-        result.win32_error = GetLastError();
-        return result;
+    if (!ReadProcessMemory(session->process, (LPCVOID)address, output, size, &bytes_read) ||
+        bytes_read != size) {
+        if (failure != NULL) {
+            failure->bytes_read = bytes_read;
+            failure->win32_error = GetLastError();
+        }
+        return false;
     }
-    result.success = true;
-    result.bytes_read = bytes_read;
-    return result;
+    return true;
 }

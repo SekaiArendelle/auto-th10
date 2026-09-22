@@ -179,15 +179,19 @@ typedef enum th10_snapshot_result_tag {
     TH10_SNAPSHOT_ALLOCATION_FAILED
 } th10_snapshot_result_tag;
 
+/* Why a memory read failed. Shared by the snapshot result and the internal
+ * reader, so both describe a failure the same way. */
+typedef struct th10_read_failure {
+    uintptr_t address;
+    size_t requested_size;
+    size_t bytes_read;
+    uint32_t win32_error;
+} th10_read_failure;
+
 typedef struct th10_snapshot_result {
     th10_snapshot_result_tag tag;
     union {
-        struct {
-            uintptr_t address;
-            size_t requested_size;
-            size_t bytes_read;
-            uint32_t win32_error;
-        } read_failed;
+        th10_read_failure read_failed;
         struct {
             th10_snapshot_array array;
             size_t requested_capacity;
