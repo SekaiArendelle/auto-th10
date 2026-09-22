@@ -4,56 +4,16 @@ This directory holds the agent layer: a rule-based player that drives the game
 from memory reads alone. It exists for two jobs, and both shape the design.
 
 The first job is to prove the loop. Read an observation, choose an action, inject
-it, and notice when the run is over: none of that has been exercised end to end
-yet, and a scripted player is the cheapest thing that can exercise it.
+it, and notice when the run is over: a scripted player is the cheapest thing that
+exercises all of that end to end.
 
 The second job is to be a teacher. A deterministic policy that plays a real stage
 produces `(observation, action, reward)` rows without a model in the loop, so it
-can generate the first dataset and later act as a baseline that a model has to
-beat.
+can generate the first dataset and later act as the baseline a model has to beat.
 
 A model is deliberately out of scope here. Nothing below needs one, and the
 interfaces are shaped so that swapping one in later does not move any other
 layer.
-
-## What the game gives us
-
-Everything here is verified against `th10.exe` 1.00a by reading the values while
-the game ran in each state. The addresses live in `src/internal.h`.
-
-| Value | Address | What it tells us |
-| --- | --- | --- |
-| Screen family | `0x00491FB8` | `0x4` title and menus, `0x7` a stage |
-| Remaining lives | `0x00474C70` | `2, 1, 0` alive, then `-1` once the run is over |
-| Stage frame counter | `0x00474C88` | advances while playing, freezes while paused |
-| Event flags | `0x00474CA0` | bit 2 is raised when the score passes the high score |
-| Score / high score / power | `0x00474C44` / `0x00474C40` / `0x00474C48` | gameplay numbers |
-
-Two traps are worth repeating because both cost real time to find:
-
-- `0x00491FBC` sits next to the screen family, holds the opposite value at the
-  same moments, and is not read by the game at all. Reading it inverts every
-  decision.
-- The high score at `0x00474C40` follows the current score while the game runs,
-  because the display keeps it topped up. Comparing the two therefore always
-  comes out equal and never reveals a record; the flag bit above is the only
-  usable signal.
-
-### The three endings are not three screens
-
-The screen family cannot separate a plain game over from the name entry that a
-record-breaking run gets. Both run inside family `0x7`, and the name entry shows
-the same screen the run before it did. What distinguishes them is the flag word:
-
-| Situation | `lives` | `0x00474CA0` bit 2 | Screen family |
-| --- | --- | --- | --- |
-| Stage running | `2`, `1`, `0` | either | `0x7` |
-| Game over, no record | `-1` | clear | `0x7` |
-| Game over, new record | `-1` | set | `0x7` |
-| Waiting for a name | `0` | set | `0x7` |
-
-That table is the whole reason for the flag: a restart that only looks at the
-screen and the lives counter cannot tell which keys the game is waiting for.
 
 ## Layers
 
@@ -73,92 +33,114 @@ The `Policy` boundary is the one that matters for the future: it takes an
 observation and returns an action, so a script and a model are interchangeable
 behind it and nothing below it changes. Observations are a struct rather than a
 bare array so that a memory-reading policy and a screen-reading policy can both
-be served without touching the loop:
+be served without touching the loop; the screen is an opt-in field that nothing
+fills in yet.
 
-```python
-@dataclass
-class Observation:
-    snapshot: Snapshot             # for a memory-reading policy
-    frame: Frame | None = None     # for a screen-reading policy, opt-in
-```
+Two facts about the layer underneath are worth knowing here rather than reading
+again in the sources:
 
-## Automatic restarting
-
-Restarting is a framework concern, not a per-experiment detail, because different
-uses want opposite behaviour and the difference is not cosmetic.
-
-Watching a validation run, the interesting moment is the ending, so the loop
-should stop and leave the screen alone. Collecting training data, the ending is
-noise, so the loop should get back into a stage as fast as it can. Collapsing
-both into one boolean would hide that, so there are two settings:
-
-```python
-class OnDeath(Enum):
-    STOP = auto()       # leave the ending on screen for a human or a capture
-    RESTART = auto()    # drive back into a stage and keep going
-
-class OnNameEntry(Enum):
-    STOP = auto()       # a record is an event worth surfacing, not a hiccup
-    TYPE = auto()       # enter a name and carry on
-```
-
-Two settings rather than one because a record-breaking ending is not just
-another ending. It is the one case where the game stops to ask for something, and
-a validation harness wants to know it happened, while a collector wants it over
-with. The `record_broken()` query exists precisely to make that call:
-
-```python
-if state is State.GAME_OVER:
-    if session.record_broken():
-        handle_name_entry()      # OnNameEntry decides what that means
-    else:
-        confirm_game_over_menu()
-```
-
-Presets keep the common pairs from being spelled out at every call site:
-
-```python
-TRAIN_PRESET = Settings(on_death=OnDeath.RESTART, on_name_entry=OnNameEntry.TYPE)
-EVAL_PRESET = Settings(on_death=OnDeath.STOP, on_name_entry=OnNameEntry.STOP)
-```
+- The game addresses, the offsets inside the structures they point at, and the
+  traps that come with them (a neighbour word that looks like the screen family,
+  a high score that follows the current one) are documented in `src/internal.h`
+  and in the public header.
+- A plain game over and the name entry a broken record gets cannot be told apart
+  from the screen, so the episode lifecycle asks `record_broken()` instead;
+  `th10_read_record_broken()` in `include/auto_th10/auto_th10.h` records why.
 
 ## Restart sequences
 
 Keystrokes are needed to get from one run to the next, and they have to be driven
 by observation rather than by sleeping a fixed time: the game's own transitions
-are the only reliable clock.
+are the only reliable clock. They live in `python/auto_th10/restart.py`, next to
+the binding, because the episode lifecycle is what calls them.
 
 | Transition | Keys | Status |
 | --- | --- | --- |
-| Game over, no record, into a new run | `<Z>` on the default entry | verified |
-| Name entry, out of it | arrows to pick, `<Z>` to accept | **not yet explored** |
-| Title into a stage | `<Z>` through the menus | partly known (four presses reached a stage) |
-| Cold start into a stage | launch, wait out the ~15 s logo, then the above | known to work in `th10ctl launch` |
+| Game over, no record, into a new run | `<Z>` on the default entry | verified; implemented in `restart.leave_game_over()` |
+| Name entry, out of it | arrows to pick, `<Z>` to accept | **not yet explored**; `restart.type_name()` raises, so `OnNameEntry.TYPE` is unusable |
+| Title into a stage | `<Z>` through the menus | not implemented on purpose: entering a stage stays with the player |
+| Cold start into a stage | launch, wait out the ~15 s logo, then the above | `th10ctl launch` starts the game; the stage is entered by hand |
 
-The name entry row is the one real unknown, and it is the one the whole flag
+Entering a stage is a deliberate hole rather than an unfinished one: a script that
+walks menus has to know how many presses each screen takes and what they select,
+and a wrong guess lands in a shot type or a difficulty nobody chose. The
+environment therefore refuses to run anywhere but in a playing stage, raising
+`NotInStage` for the menu, the pause menu and an unknown screen.
+
+A game over is the exception, and only when it was already on screen before the
+first episode: that ending was left there by an earlier attempt, and clearing it
+is one `<Z>` rather than a choice, so `reset()` does it under any settings. An
+ending the environment produced itself is a different matter - `OnDeath.STOP`
+leaves it alone. That is why one episode keeps its ending on screen while several
+restart between them, which is what `Settings.for_episodes()` decides.
+
+The name entry row is the one real unknown left, and it is the one the whole flag
 detour was for. It needs a session against the game to pin down: how many
 characters it wants, and whether it can be skipped.
 
-## Work plan
+## The evasive policy
 
-1. Expose what the agent needs to Python. Done: `state()`, `record_broken()` and
-   `capture()` on `Session`.
-2. Pin down the restart sequences above against a running game.
-3. Implement the episode lifecycle in `Th10Env.reset()`, which currently raises
-   because reset was never built:
+`EvasivePolicy` is the scripted player. Every frame it enumerates the key
+combinations the game accepts - eight directions plus standing still, each at
+focus speed and at full speed - walks each candidate a dozen frames into the
+future past the bullets, lasers and enemies in the snapshot, and drops the ones
+that are hit. The survivors are ranked by a value function: low on the field and
+centred is safe, lined up under an enemy is where the shots land, near a resource
+point is worth the risk, and standing in the path of a bullet that is on its way
+costs. Only when no candidate survives does the ranking fall back on lasting the
+longest, and only when even that runs out within a few frames does it spend a
+bomb.
 
-   ```python
-   if snapshot.game_over:
-       raise RuntimeError("automatic game/menu reset is not implemented yet")
-   ```
+The arithmetic is in `training/dodging.py` as pure functions over a Snapshot, so
+it can be tested without a game and tuned in one place. The constants and the
+shape of the value function come from TH10AI
+(`D:\projects\TH10AI\Src\GameManager.cpp`), a rule-based player for this same
+game that reads the same memory through the same offsets. Three differences are
+deliberate: the value is read once per move, at the position it ends on, rather
+than at every state a BFS passes through, which is what keeps the search cheap
+enough for Python; the walk looks twelve frames ahead where the reference searches
+four, which is still short enough that a move is not extrapolated far past what
+one key press can actually promise; and the bomb cooldown is a frame counter,
+because the snapshot carries no invulnerability flag to read.
 
-4. Add a `ScriptedPolicy` that first holds a fixed pattern, to prove observation,
-   decision, injection and restart all line up end to end.
-5. Grow that policy into an evasive one: repel from the nearest bullets, aim at
-   the nearest enemy, hold focus for precision, spend bombs when cornered.
-6. Add the collection loop and settle the dataset schema, which
-   `training/collect.py` deliberately leaves open until the reset behaviour is
-   validated.
+Two of these are worth knowing before tuning, because both were measured and both
+went the way that is not obvious. `horizon` wants to be *short*: lengthening it
+to a second of play made the policy worse, not better - it starts steering around
+bullets that are still far away, extrapolating a single held key for a second of
+flight, and in a stage whose bullets mostly fall it ends up living at the bottom
+edge. And the term that actually stops the policy standing still is
+`attack_value`, the penalty for a spot a bullet is flying towards: without it the
+value function parks the player in the middle of the bottom half and waits, which
+looks exactly like a policy that has stopped working. `INCOMING_RADIUS` is
+deliberately narrow for the same reason: a band wide enough to see the whole stage
+starts moving the player around the whole stage.
 
-Steps 1 and 2 come before any policy work on purpose. Writing a policy against a
-reset that does not exist would mean rebuilding it once the real one lands.
+Two numbers are assumptions rather than measurements, and both say so next to
+themselves: how a bullet's own velocity maps onto the frames the walk counts in
+(`BULLET_LEAD`), and what a laser's fields mean, which `laser_box()` copies box
+for box from the reference.
+
+## Where it stands
+
+Both entry points expect a game that is already in a stage:
+
+```powershell
+pixi run python -m training.evaluate --episodes 3 --policy evasive
+pixi run python -m training.collect --out runs/first.jsonl
+```
+
+- `training/policy.py` - `FixedPolicy`, `EvasivePolicy` and `RandomPolicy`,
+  behind one `Policy` boundary.
+- `training/dodging.py` - the geometry `EvasivePolicy` decides with: hazard
+  boxes, the frame a move is first hit on, and the value of a spot.
+- `training/loop.py` - `run_episode()` / `run_episodes()`, which hand every step
+  and every episode to callbacks.
+- `training/collect.py` - JSONL rows under `runs/`, with a schema that is still
+  provisional.
+- `training/train.py` - a stub: nothing here trains a model yet.
+
+Open: the name entry sequence above, tuning against a real stage - the entry
+points run, but nothing here has been tuned with the game in front of it, and
+`BULLET_LEAD` and the laser box are still guesses - the dataset schema until a
+real collection run says what the training side needs from it, and a model, which
+swaps in behind `Policy` without the loop noticing.
