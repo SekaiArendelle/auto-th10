@@ -33,11 +33,11 @@ CPython extension over it, and an agent/training layer in Python.
 | `include/auto_th10/auto_th10.h` | The public C API — the only header a consumer includes |
 | `src/` | Win32 implementation; `internal.h` holds the session struct and the verified game addresses |
 | `python/auto_th10/_native.c` | CPython extension module (`_native`) — the only file that touches the CPython API |
-| `python/auto_th10/` | Python layer: `session.py`, `types.py`, `env.py`, re-exported by `__init__.py` |
+| `python/auto_th10/` | Python layer: `session.py`, `types.py`, `env.py` (observations and the episode lifecycle), `restart.py` (the key sequences out of a menu), re-exported by `__init__.py` |
 | `tools/th10ctl.c` | `th10ctl`, the command line driver over the same C API — see [README.md](./README.md#manual-testing) |
 | `tests/c/test_c_api.c` | C test (ctest target `c_api`) |
-| `tests/python/` | `unittest` suites |
-| `training/` | Agent layer: design notes in `README.md`, plus the collection/training/evaluation entry points (stubs) |
+| `tests/python/` | `unittest` suites, with the shared fakes in `fakes.py` |
+| `training/` | Agent layer: `policy.py`, `loop.py`, the `evaluate`/`collect` entry points (`train.py` is still a stub), and the design notes in `README.md` |
 | `CMakeLists.txt`, `CMakePresets.json` | Build description and `dev`/`release` presets |
 | `pixi.toml` | Toolchain and task definitions |
 
@@ -243,7 +243,13 @@ The Python floor is 3.10 (`pyproject.toml`), even though Pixi installs 3.14. Do 
 - Start each module with `from __future__ import annotations` and annotate fully, including `-> None` return types.
 - Value types are `@dataclass(frozen=True, slots=True)` (`python/auto_th10/types.py`). Keep them immutable.
 - Keep the layer thin and declarative: Win32 behavior belongs in C, and `session.py` should stay a named wrapper over
-  `_native`. Anything higher-level (an environment, a policy, a loop) belongs in `env.py` or `training/`.
+  `_native`. Anything that drives the game (the environment, the key sequences in `restart.py`) stays in
+  `python/auto_th10/`; anything that decides or records (a policy, a loop, an entry point) belongs in `training/`.
+- Keep the agent on a short leash, because every mistake here ends the same way — an agent typing into a menu. A policy
+  decides from an `Observation` and nothing else; the step loop never calls the blocking `state()` (about 120 ms, it
+  samples the frame counter twice); and `Th10Env` raises `NotInStage` rather than inject a key for a menu, the pause
+  menu, an unknown screen, or an ending it is not allowed to leave. The one ending it does clear is one that was
+  already on screen before the first episode, since that is left over from an earlier attempt.
 - Text-producing enums that mirror C constants derive from `str` rather than `StrEnum`, so a member compares equal to
   the raw name the C side returns while still working on 3.10 (`State` in `session.py`).
 - Export public names explicitly through `__all__` in `python/auto_th10/__init__.py`.
