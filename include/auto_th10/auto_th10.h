@@ -1,6 +1,7 @@
 #ifndef AUTO_TH10_AUTO_TH10_H
 #define AUTO_TH10_AUTO_TH10_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 

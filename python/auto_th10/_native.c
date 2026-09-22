@@ -114,6 +114,28 @@ static int raise_snapshot_result(th10_snapshot_result result) {
     return -1;
 }
 
+static int raise_capture_result(th10_capture_result result) {
+    switch (result.tag) {
+        case TH10_CAPTURE_INVALID_ARGUMENT:
+            PyErr_SetString(PyExc_ValueError, "capture needs a path and an open game window");
+            break;
+        case TH10_CAPTURE_PRINT_WINDOW_FAILED:
+            PyErr_SetString(PyExc_RuntimeError, "PrintWindow could not render the game window");
+            break;
+        case TH10_CAPTURE_CLIENT_RECT_FAILED:
+        case TH10_CAPTURE_CREATE_DC_FAILED:
+        case TH10_CAPTURE_CREATE_BITMAP_FAILED:
+        case TH10_CAPTURE_FILE_OPEN_FAILED:
+        case TH10_CAPTURE_FILE_WRITE_FAILED:
+            PyErr_SetFromWindowsErr((int)result.win32_error);
+            break;
+        default:
+            PyErr_SetString(PyExc_RuntimeError, "invalid th10_capture result");
+            break;
+    }
+    return -1;
+}
+
 static PyObject *session_new(PyTypeObject *type, PyObject *args, PyObject *keywords) {
     py_th10_session *self;
     (void)args;
@@ -346,6 +368,57 @@ static PyObject *session_snapshot(py_th10_session *self, PyObject *ignored) {
     return result;
 }
 
+static PyObject *session_state(py_th10_session *self, PyObject *ignored) {
+    static const char *names[] = {
+        "TH10_STATE_UNKNOWN", "TH10_STATE_MENU",   "TH10_STATE_PLAYING",
+        "TH10_STATE_PAUSED",  "TH10_STATE_GAME_OVER",
+    };
+    th10_state state;
+    (void)ignored;
+
+    if (ensure_open(self) < 0) {
+        return NULL;
+    }
+    state = th10_read_state(self->session);
+    if ((unsigned int)state >= sizeof(names) / sizeof(names[0])) {
+        PyErr_SetString(PyExc_RuntimeError, "invalid th10_read_state result");
+        return NULL;
+    }
+    return PyUnicode_FromString(names[(unsigned int)state]);
+}
+
+static PyObject *session_record_broken(py_th10_session *self, PyObject *ignored) {
+    (void)ignored;
+
+    if (ensure_open(self) < 0) {
+        return NULL;
+    }
+    if (th10_read_record_broken(self->session)) {
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_FALSE;
+}
+
+static PyObject *session_capture(py_th10_session *self, PyObject *argument) {
+    th10_capture_result result;
+    wchar_t *path;
+
+    if (ensure_open(self) < 0) {
+        return NULL;
+    }
+    path = PyUnicode_AsWideCharString(argument, NULL);
+    if (path == NULL) {
+        return NULL;
+    }
+    result = th10_capture(self->session, path);
+    PyMem_Free(path);
+    if (result.tag != TH10_CAPTURE_SUCCESS) {
+        raise_capture_result(result);
+        return NULL;
+    }
+    return Py_BuildValue("(II)", (unsigned int)result.width, (unsigned int)result.height);
+}
+
 static PyObject *session_enter(py_th10_session *self, PyObject *ignored) {
     (void)ignored;
     if (ensure_open(self) < 0) {
@@ -364,6 +437,12 @@ static PyMethodDef session_methods[] = {
     {"focus", (PyCFunction)session_focus, METH_NOARGS, "Bring the game window to the foreground."},
     {"set_input", (PyCFunction)session_set_input, METH_O, "Set the currently held action mask."},
     {"snapshot", (PyCFunction)session_snapshot, METH_NOARGS, "Read one complete gameplay snapshot."},
+    {"state", (PyCFunction)session_state, METH_NOARGS,
+     "Report the screen: TH10_STATE_MENU / PLAYING / PAUSED / GAME_OVER / UNKNOWN."},
+    {"record_broken", (PyCFunction)session_record_broken, METH_NOARGS,
+     "Report whether the run set a new high score, so a restart owes a name entry."},
+    {"capture", (PyCFunction)session_capture, METH_O,
+     "Capture the game window to a BMP path; returns (width, height)."},
     {"__enter__", (PyCFunction)session_enter, METH_NOARGS, NULL},
     {"__exit__", (PyCFunction)session_exit, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},

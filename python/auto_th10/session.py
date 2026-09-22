@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from enum import IntFlag
+import os
+from enum import Enum, IntFlag
 from types import TracebackType
 
 from . import _native
@@ -18,6 +19,24 @@ class Action(IntFlag):
     BOMB = _native.BOMB
 
 
+class State(str, Enum):
+    """The screen the game is on, straight from the game's own state word.
+
+    PLAYING and PAUSED are worth distinguishing: a paused stage still reads as a
+    stage, and only the frame counter tells them apart.
+
+    Derives from str so a member compares equal to the raw name the C side
+    returns, without needing StrEnum (which would raise the project's Python
+    floor to 3.11).
+    """
+
+    UNKNOWN = "TH10_STATE_UNKNOWN"
+    MENU = "TH10_STATE_MENU"
+    PLAYING = "TH10_STATE_PLAYING"
+    PAUSED = "TH10_STATE_PAUSED"
+    GAME_OVER = "TH10_STATE_GAME_OVER"
+
+
 class Session:
     def __init__(self) -> None:
         self._native = _native.Session()
@@ -33,6 +52,22 @@ class Session:
 
     def snapshot(self) -> Snapshot:
         return Snapshot.from_native(self._native.snapshot())
+
+    def state(self) -> State:
+        return State(self._native.state())
+
+    def record_broken(self) -> bool:
+        """Whether the run that just ended set a new high score.
+
+        Read this after State.GAME_OVER: a set flag means the game is about to
+        ask for a name and a restart has to type one, while a clear flag means
+        confirming the game over menu is enough.
+        """
+        return self._native.record_broken()
+
+    def capture(self, path: str | os.PathLike[str]) -> tuple[int, int]:
+        """Write the game window into `path` as a BMP; returns (width, height)."""
+        return self._native.capture(os.fspath(path))
 
     def __enter__(self) -> Session:
         return self
