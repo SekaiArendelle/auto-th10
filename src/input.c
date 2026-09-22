@@ -5,7 +5,8 @@
  * arrow keys are delivered as their numeric keypad twins, which the game does
  * not look at. Every action therefore carries its own scan code, and the four
  * arrow keys are extended keys (without the E0 prefix they have no scan code of
- * their own). Verified against th10.exe by injection experiment. */
+ * their own). Every row here was verified against th10.exe by injection
+ * experiment, Escape included. */
 typedef struct action_key {
     uint32_t action;
     WORD scan_code;
@@ -20,6 +21,7 @@ static const action_key ACTION_KEYS[] = {
     {TH10_ACTION_SHOOT, 0x2Cu, 0}, /* 'Z' */
     {TH10_ACTION_FOCUS, 0x2Au, 0}, /* left Shift */
     {TH10_ACTION_BOMB, 0x2Du, 0},  /* 'X' */
+    {TH10_ACTION_ESCAPE, 0x01u, 0}, /* Escape */
 };
 
 #define ACTION_KEY_COUNT (sizeof(ACTION_KEYS) / sizeof(ACTION_KEYS[0]))
@@ -30,7 +32,7 @@ th10_input_result th10_set_input(th10_session *session, uint32_t action_mask) {
     size_t index;
     const uint32_t supported = TH10_ACTION_LEFT | TH10_ACTION_RIGHT | TH10_ACTION_UP |
                                TH10_ACTION_DOWN | TH10_ACTION_SHOOT | TH10_ACTION_FOCUS |
-                               TH10_ACTION_BOMB;
+                               TH10_ACTION_BOMB | TH10_ACTION_ESCAPE;
 
     if (session == NULL) {
         return (th10_input_result){.tag = TH10_INPUT_INVALID_SESSION};

@@ -11,12 +11,13 @@ which screen follows which, which entry is the default, or where a stray confirm
 press lands. A wrong press here does not corrupt anything - it walks the game
 somewhere nobody asked for, into a replay save or into a difficulty nobody chose.
 
-## Keys we can send, and the one we cannot
+## Keys we can send
 
-`th10_set_input()` sends the direction keys, `SHOOT` (Z), `FOCUS` (Shift) and
-`BOMB` (X), as scan codes. **There is no Escape**, so a pause cannot be opened or
-left from the library. A pause menu can only be walked out of with `SHOOT`, which
-works because the default entry resumes the run.
+`th10_set_input()` sends the direction keys, `SHOOT` (Z), `FOCUS` (Shift), `BOMB`
+(X) and `ESCAPE`, as scan codes. `ESCAPE` pauses a stage, and it is also the key
+that backs out of a screen the game is waiting on. It exists in the action set
+because without it a menu the agent had walked into could only be left with
+`SHOOT`, and only when its default entry happened to be the way back.
 
 Keys only reach the game while its window owns the foreground. `th10_focus()`
 does that and also works around a Chinese IME on the game's thread, and it can
@@ -110,7 +111,15 @@ not achieved; the one time it was left, it was walked by hand.
 
 ## Pause menu
 
-Not measured. Opening it needs Escape, which the library does not send, and the
-one probe that sent it by hand did so while the game over menu was up, where it
-does nothing. It is worth measuring before anything relies on it; until then, the
-only known fact is that the default entry resumes the run.
+Reachable now that `ESCAPE` is in the action set - `th10ctl hold escape 150`, or
+`Action.ESCAPE` from Python.
+
+Its entries are still not written down: the one probe that reached the screen had
+no screenshot taken, and the debug keyboard could not reopen it afterwards. The
+recorded fact is that the default entry resumes the run, which is how a paused run
+was brought back during debugging.
+
+Two things that do **not** pause the game, both measured, because they look like
+they should: leaving it alone in a stage, and giving another window the
+foreground. The game keeps playing in the second case, and the keys stop arriving
+at the same time, since a window that has lost the foreground is not sent any.

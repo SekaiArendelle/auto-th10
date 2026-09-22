@@ -37,6 +37,7 @@ static const action_entry ACTIONS[] = {
     {TH10_ACTION_SHOOT, "shoot"},
     {TH10_ACTION_FOCUS, "focus"},
     {TH10_ACTION_BOMB, "bomb"},
+    {TH10_ACTION_ESCAPE, "escape"},
 };
 
 #define ACTION_COUNT (sizeof(ACTIONS) / sizeof(ACTIONS[0]))
@@ -78,7 +79,7 @@ static void print_usage(void) {
            "  launch <th10.exe> [ms]    start the game and wait for its window\n"
            "  help                      show this help\n"
            "\n"
-           "Actions: left right up down shoot focus bomb\n"
+           "Actions: left right up down shoot focus bomb escape\n"
            "\n"
            "An action spec is a space or comma separated list; '+' and '-' adjust what\n"
            "is held instead of replacing it:\n"

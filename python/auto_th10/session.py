@@ -17,6 +17,7 @@ class Action(IntFlag):
     SHOOT = _native.SHOOT
     FOCUS = _native.FOCUS
     BOMB = _native.BOMB
+    ESCAPE = _native.ESCAPE
 
 
 class State(str, Enum):

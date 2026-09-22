@@ -43,7 +43,9 @@ typedef enum th10_action {
     TH10_ACTION_DOWN = 1u << 3, /**< the down arrow key */
     TH10_ACTION_SHOOT = 1u << 4, /**< the shoot key ('Z') */
     TH10_ACTION_FOCUS = 1u << 5, /**< the focus key (left Shift) */
-    TH10_ACTION_BOMB = 1u << 6 /**< the bomb key ('X') */
+    TH10_ACTION_BOMB = 1u << 6, /**< the bomb key ('X') */
+    TH10_ACTION_ESCAPE = 1u << 7 /**< the escape key, which pauses a stage and
+                                  * backs out of a menu the game is waiting on */
 } th10_action;
 
 /** @brief A position, in the game's own coordinates. */
