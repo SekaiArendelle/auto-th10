@@ -399,6 +399,20 @@ static PyObject *session_record_broken(py_th10_session *self, PyObject *ignored)
     Py_RETURN_FALSE;
 }
 
+static PyObject *session_stage_frames(py_th10_session *self, PyObject *ignored) {
+    uint32_t frames = 0;
+    (void)ignored;
+
+    if (ensure_open(self) < 0) {
+        return NULL;
+    }
+    if (!th10_read_stage_frames(self->session, &frames)) {
+        PyErr_SetString(PyExc_OSError, "the stage frame counter could not be read");
+        return NULL;
+    }
+    return PyLong_FromUnsignedLong((unsigned long)frames);
+}
+
 static PyObject *session_capture(py_th10_session *self, PyObject *argument) {
     th10_capture_result result;
     wchar_t *path;
@@ -441,6 +455,8 @@ static PyMethodDef session_methods[] = {
      "Report the screen: TH10_STATE_MENU / PLAYING / PAUSED / GAME_OVER / UNKNOWN."},
     {"record_broken", (PyCFunction)session_record_broken, METH_NOARGS,
      "Report whether the run set a new high score, so a restart owes a name entry."},
+    {"stage_frames", (PyCFunction)session_stage_frames, METH_NOARGS,
+     "Read the stage frame counter: advances while playing, freezes while paused."},
     {"capture", (PyCFunction)session_capture, METH_O,
      "Capture the game window to a BMP path; returns (width, height)."},
     {"__enter__", (PyCFunction)session_enter, METH_NOARGS, NULL},

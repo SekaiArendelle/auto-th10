@@ -1,6 +1,8 @@
 import unittest
+from unittest import mock
 
 from auto_th10 import Action, State
+from auto_th10 import session as session_module
 
 
 class StateTests(unittest.TestCase):
@@ -45,6 +47,27 @@ class ActionTests(unittest.TestCase):
             combined |= member
         for member in Action:
             self.assertTrue(int(combined) & int(member))
+
+
+class StageFramesTests(unittest.TestCase):
+    """The wrapper only forwards: the counter itself needs a running game."""
+
+    def test_forwards_to_the_native_session(self) -> None:
+        class FakeNativeSession:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def stage_frames(self) -> int:
+                self.calls += 1
+                return 4242
+
+        fake = FakeNativeSession()
+
+        with mock.patch.object(session_module._native, "Session", lambda: fake):
+            game = session_module.Session()
+            self.assertEqual(game.stage_frames(), 4242)
+
+        self.assertEqual(fake.calls, 1)
 
 
 if __name__ == "__main__":

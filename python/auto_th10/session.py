@@ -56,6 +56,15 @@ class Session:
     def state(self) -> State:
         return State(self._native.state())
 
+    def stage_frames(self) -> int:
+        """The game's own clock: it advances while a stage is playing and freezes
+        while it is paused.
+
+        Reading it twice tells "the game moved" from "the game stopped" without
+        the ~120 ms `state()` spends on the same answer.
+        """
+        return self._native.stage_frames()
+
     def record_broken(self) -> bool:
         """Whether the run that just ended set a new high score.
 
