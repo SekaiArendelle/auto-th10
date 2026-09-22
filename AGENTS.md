@@ -35,6 +35,7 @@ CPython extension over it, and an agent/training layer in Python.
 | `python/auto_th10/_native.c` | CPython extension module (`_native`) — the only file that touches the CPython API |
 | `python/auto_th10/` | Python layer: `session.py`, `types.py`, `env.py` (observations and the episode lifecycle), `restart.py` (the key sequences out of a menu), re-exported by `__init__.py` |
 | `tools/th10ctl.c` | `th10ctl`, the command line driver over the same C API — see [README.md](./README.md#manual-testing) |
+| `docs/game-ui.md` | The game's menus and endings, screen by screen — read it before driving the UI |
 | `tests/c/test_c_api.c` | C test (ctest target `c_api`) |
 | `tests/python/` | `unittest` suites, with the shared fakes in `fakes.py` |
 | `training/` | Agent layer: `policy.py`, `loop.py`, the `evaluate`/`collect` entry points (`train.py` is still a stub), and the design notes in `README.md` |

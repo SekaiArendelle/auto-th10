@@ -38,6 +38,12 @@ class ActionTests(unittest.TestCase):
     def test_none_is_empty(self) -> None:
         self.assertEqual(int(Action.NONE), 0)
 
+    def test_escape_keeps_the_bit_the_c_header_assigns_it(self) -> None:
+        # The mask crosses the C API, where TH10_ACTION_ESCAPE is 1u << 7: a
+        # Python-side slip that renumbered the actions would send the wrong keys
+        # and nothing else would notice.
+        self.assertEqual(int(Action.ESCAPE), 1 << 7)
+
     def test_directions_and_face_buttons_are_distinct_bits(self) -> None:
         bits = [int(member) for member in Action if member is not Action.NONE]
         self.assertEqual(len(bits), len(set(bits)))

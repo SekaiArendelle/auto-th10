@@ -513,6 +513,7 @@ PyMODINIT_FUNC PyInit__native(void) {
     ADD_ACTION(SHOOT)
     ADD_ACTION(FOCUS)
     ADD_ACTION(BOMB)
+    ADD_ACTION(ESCAPE)
 #undef ADD_ACTION
     return module;
 }
