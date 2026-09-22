@@ -218,6 +218,13 @@ warning-free.
   traps (see `TH10_SCENE_ADDRESS` and the note on `0x00474C40`).
 - **Comments explain why, not what.** Use `/* ... */` blocks, wrap at the file's column limit, and continue with a
   leading ` * `. Long explanations of a decision belong on the declaration or next to the code that depends on it.
+- **The public header is documented in Doxygen style.** `include/auto_th10/auto_th10.h` is the only header a consumer
+  sees, so its comments carry markup as well as prose: `/** ... */` blocks with `@brief`, plus `@param`, `@return` and
+  `@note` where they apply, and `/**< ... */` on enumeration members, struct fields and union members. The design
+  rationale that was already there stays in the block body — the markup is added around it, not instead of it. There
+  is deliberately no `Doxyfile`: nothing renders these comments today, they are read by people and by agents.
+- **Internal code keeps the plain narrative style.** `src/`, `tools/`, `tests/` and the internal headers stay on
+  `/* ... */` blocks written for the maintainer; do not sprinkle Doxygen markup there.
 - **Declare variables at the top of the block** and initialize them there, as the existing functions do.
 - **Do not grow the public API for a single caller.** A helper that only one module needs stays `static` there; the
   public header carries what both `th10ctl` and the Python binding use.
