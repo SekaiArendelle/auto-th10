@@ -62,6 +62,8 @@ static void print_usage(void) {
            "  info                      attach to the game and report the session\n"
            "  focus                     hand the game the keyboard focus, so that it\n"
            "                            receives the keys injected by hold\n"
+           "  state                     report the screen: menu / playing / paused /\n"
+           "                            game over\n"
            "  snapshot                  read and print one snapshot\n"
            "  shot [file.bmp]           capture the game window (works in the background)\n"
            "  hold <spec> <ms>          press actions for <ms>, then release them again\n"
@@ -150,6 +152,17 @@ static const char *capture_tag_name(th10_capture_result_tag tag) {
         RETURN_TAG_NAME(TH10_CAPTURE_FILE_WRITE_FAILED)
     }
     return "TH10_CAPTURE_UNKNOWN";
+}
+
+static const char *state_name(th10_state state) {
+    switch (state) {
+        RETURN_TAG_NAME(TH10_STATE_UNKNOWN)
+        RETURN_TAG_NAME(TH10_STATE_MENU)
+        RETURN_TAG_NAME(TH10_STATE_PLAYING)
+        RETURN_TAG_NAME(TH10_STATE_PAUSED)
+        RETURN_TAG_NAME(TH10_STATE_GAME_OVER)
+    }
+    return "TH10_STATE_UNKNOWN";
 }
 
 #undef RETURN_TAG_NAME
@@ -671,6 +684,22 @@ static bool command_launch(const char *executable, int timeout_ms) {
     return false;
 }
 
+/* Reports the screen the game is on, read from its own state words. */
+static bool command_state(void) {
+    th10_state state;
+
+    if (!attach_session(ATTACH_NORMAL)) {
+        return false;
+    }
+    state = th10_read_state(g_session);
+    if (g_json) {
+        printf("{\"state\":\"%s\"}\n", state_name(state));
+    } else {
+        printf("state: %s\n", state_name(state));
+    }
+    return state != TH10_STATE_UNKNOWN;
+}
+
 static bool command_info(void) {
     if (!attach_session(ATTACH_NORMAL)) {
         return false;
@@ -990,6 +1019,8 @@ int main(int argc, char **argv) {
         status = command_focus() ? 0 : 1;
     } else if (strcmp(command, "info") == 0) {
         status = command_info() ? 0 : 1;
+    } else if (strcmp(command, "state") == 0) {
+        status = command_state() ? 0 : 1;
     } else if (strcmp(command, "shot") == 0) {
         status = command_capture(index < argc ? argv[index] : NULL) ? 0 : 1;
     } else if (strcmp(command, "windows") == 0) {

@@ -16,6 +16,7 @@ add_library(th10_core STATIC
     src/memory.c
     src/session.c
     src/snapshot.c
+    src/state.c
 )
 target_compile_features(th10_core PUBLIC c_std_17)
 target_include_directories(th10_core

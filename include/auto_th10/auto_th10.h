@@ -238,6 +238,30 @@ typedef struct th10_capture_result {
  * background or covered over, and needs neither the focus nor the foreground. */
 th10_capture_result th10_capture(th10_session *session, const wchar_t *path);
 
+typedef enum th10_state {
+    TH10_STATE_UNKNOWN = 0, /* the state could not be determined */
+    TH10_STATE_MENU,        /* the title and its menus, no stage in play */
+    TH10_STATE_PLAYING,     /* a stage is running */
+    TH10_STATE_PAUSED,      /* a stage is loaded but frozen by the pause menu */
+    TH10_STATE_GAME_OVER    /* the run is over */
+} th10_state;
+
+/* Reports which of the five states the game is in, read from three words of the
+ * game's static data rather than inferred from bulk memory diffing:
+ *
+ *   0x00491FB8  screen family: 0x4 is the title and menus, 0x7 is a stage
+ *   0x00474C70  remaining lives: 2, 1, 0 alive, then -1 once the run is over
+ *   0x00474C88  stage frame counter: advances while playing, freezes while paused
+ *
+ * The screen family is what separates a menu from a stage, the lives counter
+ * alone decides game over, and the frame counter is the only thing that can
+ * tell playing from paused - both are family 0x7 and the pause menu sets no
+ * flag that a single sample could read.
+ *
+ * This blocks for about 120 ms when it has to sample the frame counter twice;
+ * the menu and game-over answers return immediately. */
+th10_state th10_read_state(th10_session *session);
+
 #ifdef __cplusplus
 }
 #endif

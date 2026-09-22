@@ -9,6 +9,59 @@ enum {
     MAX_LINKED_NODES = 4096,
 };
 
+/* Offsets inside the structures the game hangs off the addresses in internal.h.
+ * These stay local: they are relative to a pointer the snapshot has already
+ * resolved, and they describe this file's reading of those structures rather
+ * than anything shared. */
+enum {
+    /* The stage object: the player's own position. */
+    STAGE_PLAYER_X = 0x3C0u,
+    STAGE_PLAYER_Y = 0x3C4u,
+
+    /* The enemy manager points at a linked list; each node holds the object
+     * pointer and the next node, and the object is offset by a fixed amount
+     * before its flags and rectangle become readable. */
+    NODE_OBJECT = 0x0u,
+    NODE_NEXT = 0x4u,
+    ENEMY_OBJECT_BIAS = 0x103Cu,
+    ENEMY_FLAGS = 0x1444u,
+    ENEMY_FLAGS_HIDDEN = 0x52u,
+    ENEMY_X = 0x2Cu,
+    ENEMY_Y = 0x30u,
+    ENEMY_WIDTH = 0xB8u,
+    ENEMY_HEIGHT = 0xBCu,
+    ENEMY_LIST_HEAD = 0x58u,
+
+    /* Enemy bullets are a fixed stride array hung off the manager. */
+    BULLET_SLOTS = 0x60u,
+    BULLET_STRIDE = 0x7F0u,
+    BULLET_ACTIVE = 0x446u,
+    BULLET_FLAGS_NODE = 0x58u,
+    BULLET_FLAG_HIDDEN = 0x400u,
+    BULLET_X = 0x3B4u,
+    BULLET_Y = 0x3B8u,
+    BULLET_WIDTH = 0x3F0u,
+    BULLET_HEIGHT = 0x3F4u,
+    BULLET_DX = 0x3C0u,
+    BULLET_DY = 0x3C4u,
+
+    /* Enemy lasers are a linked list read in place, with no object bias. */
+    LASER_LIST_HEAD = 0x18u,
+    LASER_NEXT = 0x8u,
+    LASER_X = 0x24u,
+    LASER_Y = 0x28u,
+    LASER_HEIGHT = 0x40u,
+    LASER_WIDTH = 0x44u,
+    LASER_RADIAN = 0x3Cu,
+
+    /* Resources are a fixed stride array; the loop address sits four bytes past
+     * the pair the snapshot reads, hence the bias. */
+    RESOURCE_SLOTS = 0x3C4u,
+    RESOURCE_STRIDE = 0x3F0u,
+    RESOURCE_ACTIVE = 0x2Cu,
+    RESOURCE_X_BIAS = 0x4u,
+};
+
 static th10_snapshot_result snapshot_success(void) {
     return (th10_snapshot_result){.tag = TH10_SNAPSHOT_SUCCESS};
 }
@@ -119,14 +172,14 @@ DEFINE_APPEND(append_laser, th10_enemy_laser_array, th10_enemy_laser)
 static th10_snapshot_result read_player(th10_session *session, th10_snapshot *snapshot) {
     th10_snapshot_result failure;
     uint32_t base = 0;
-    if (!READ_VALUE(session, 0x00477834u, base, failure)) {
+    if (!READ_VALUE(session, TH10_STAGE_BASE_ADDRESS, base, failure)) {
         return failure;
     }
     if (base == 0) {
         return snapshot_not_in_game();
     }
-    if (!READ_VALUE(session, base + 0x3C0u, snapshot->player.x, failure) ||
-        !READ_VALUE(session, base + 0x3C4u, snapshot->player.y, failure)) {
+    if (!READ_VALUE(session, base + STAGE_PLAYER_X, snapshot->player.x, failure) ||
+        !READ_VALUE(session, base + STAGE_PLAYER_Y, snapshot->player.y, failure)) {
         return failure;
     }
     return snapshot_success();
@@ -138,13 +191,13 @@ static th10_snapshot_result read_enemies(th10_session *session, th10_snapshot *s
     uint32_t node = 0;
     size_t visited = 0;
 
-    if (!READ_VALUE(session, 0x00477704u, manager, failure)) {
+    if (!READ_VALUE(session, TH10_ENEMY_MANAGER_ADDRESS, manager, failure)) {
         return failure;
     }
     if (manager == 0) {
         return snapshot_not_in_game();
     }
-    if (!READ_VALUE(session, manager + 0x58u, node, failure)) {
+    if (!READ_VALUE(session, manager + ENEMY_LIST_HEAD, node, failure)) {
         return failure;
     }
     while (node != 0 && visited++ < MAX_LINKED_NODES) {
@@ -152,19 +205,19 @@ static th10_snapshot_result read_enemies(th10_session *session, th10_snapshot *s
         uint32_t next = 0;
         uint32_t flags = 0;
         th10_rect enemy;
-        if (!READ_VALUE(session, node, object, failure) ||
-            !READ_VALUE(session, node + 4u, next, failure)) {
+        if (!READ_VALUE(session, node + NODE_OBJECT, object, failure) ||
+            !READ_VALUE(session, node + NODE_NEXT, next, failure)) {
             return failure;
         }
-        object += 0x103Cu;
-        if (!READ_VALUE(session, object + 0x1444u, flags, failure)) {
+        object += ENEMY_OBJECT_BIAS;
+        if (!READ_VALUE(session, object + ENEMY_FLAGS, flags, failure)) {
             return failure;
         }
-        if ((flags & 0x52u) == 0) {
-            if (!READ_VALUE(session, object + 0x2Cu, enemy.x, failure) ||
-                !READ_VALUE(session, object + 0x30u, enemy.y, failure) ||
-                !READ_VALUE(session, object + 0xB8u, enemy.width, failure) ||
-                !READ_VALUE(session, object + 0xBCu, enemy.height, failure)) {
+        if ((flags & ENEMY_FLAGS_HIDDEN) == 0) {
+            if (!READ_VALUE(session, object + ENEMY_X, enemy.x, failure) ||
+                !READ_VALUE(session, object + ENEMY_Y, enemy.y, failure) ||
+                !READ_VALUE(session, object + ENEMY_WIDTH, enemy.width, failure) ||
+                !READ_VALUE(session, object + ENEMY_HEIGHT, enemy.height, failure)) {
                 return failure;
             }
             if (!append_rect(&snapshot->enemies, enemy)) {
@@ -184,40 +237,40 @@ static th10_snapshot_result read_enemy_bullets(th10_session *session, th10_snaps
     uint32_t address;
     size_t index;
 
-    if (!READ_VALUE(session, 0x004776F0u, manager, failure)) {
+    if (!READ_VALUE(session, TH10_BULLET_MANAGER_ADDRESS, manager, failure)) {
         return failure;
     }
     if (manager == 0) {
         return snapshot_not_in_game();
     }
-    address = manager + 0x60u;
-    for (index = 0; index < BULLET_SLOT_COUNT; ++index, address += 0x7F0u) {
+    address = manager + BULLET_SLOTS;
+    for (index = 0; index < BULLET_SLOT_COUNT; ++index, address += BULLET_STRIDE) {
         uint16_t active = 0;
         th10_enemy_bullet bullet;
-        if (!READ_VALUE(session, address + 0x446u, active, failure)) {
+        if (!READ_VALUE(session, address + BULLET_ACTIVE, active, failure)) {
             return failure;
         }
         if (active == 0) {
             continue;
         }
-        if (!READ_VALUE(session, 0x00477810u, bullet_flags, failure)) {
+        if (!READ_VALUE(session, TH10_BULLET_FLAGS_ADDRESS, bullet_flags, failure)) {
             return failure;
         }
         if (bullet_flags == 0) {
             continue;
         }
-        if (!READ_VALUE(session, bullet_flags + 0x58u, bullet_flags, failure)) {
+        if (!READ_VALUE(session, bullet_flags + BULLET_FLAGS_NODE, bullet_flags, failure)) {
             return failure;
         }
-        if ((bullet_flags & 0x400u) != 0) {
+        if ((bullet_flags & BULLET_FLAG_HIDDEN) != 0) {
             continue;
         }
-        if (!READ_VALUE(session, address + 0x3B4u, bullet.x, failure) ||
-            !READ_VALUE(session, address + 0x3B8u, bullet.y, failure) ||
-            !READ_VALUE(session, address + 0x3F0u, bullet.width, failure) ||
-            !READ_VALUE(session, address + 0x3F4u, bullet.height, failure) ||
-            !READ_VALUE(session, address + 0x3C0u, bullet.dx, failure) ||
-            !READ_VALUE(session, address + 0x3C4u, bullet.dy, failure)) {
+        if (!READ_VALUE(session, address + BULLET_X, bullet.x, failure) ||
+            !READ_VALUE(session, address + BULLET_Y, bullet.y, failure) ||
+            !READ_VALUE(session, address + BULLET_WIDTH, bullet.width, failure) ||
+            !READ_VALUE(session, address + BULLET_HEIGHT, bullet.height, failure) ||
+            !READ_VALUE(session, address + BULLET_DX, bullet.dx, failure) ||
+            !READ_VALUE(session, address + BULLET_DY, bullet.dy, failure)) {
             return failure;
         }
         if (!append_bullet(&snapshot->enemy_bullets, bullet)) {
@@ -235,24 +288,24 @@ static th10_snapshot_result read_enemy_lasers(th10_session *session, th10_snapsh
     uint32_t node = 0;
     size_t visited = 0;
 
-    if (!READ_VALUE(session, 0x0047781Cu, manager, failure)) {
+    if (!READ_VALUE(session, TH10_LASER_MANAGER_ADDRESS, manager, failure)) {
         return failure;
     }
     if (manager == 0) {
         return snapshot_not_in_game();
     }
-    if (!READ_VALUE(session, manager + 0x18u, node, failure)) {
+    if (!READ_VALUE(session, manager + LASER_LIST_HEAD, node, failure)) {
         return failure;
     }
     while (node != 0 && visited++ < MAX_LINKED_NODES) {
         uint32_t next = 0;
         th10_enemy_laser laser;
-        if (!READ_VALUE(session, node + 0x8u, next, failure) ||
-            !READ_VALUE(session, node + 0x24u, laser.x, failure) ||
-            !READ_VALUE(session, node + 0x28u, laser.y, failure) ||
-            !READ_VALUE(session, node + 0x44u, laser.width, failure) ||
-            !READ_VALUE(session, node + 0x40u, laser.height, failure) ||
-            !READ_VALUE(session, node + 0x3Cu, laser.radian, failure)) {
+        if (!READ_VALUE(session, node + LASER_NEXT, next, failure) ||
+            !READ_VALUE(session, node + LASER_X, laser.x, failure) ||
+            !READ_VALUE(session, node + LASER_Y, laser.y, failure) ||
+            !READ_VALUE(session, node + LASER_WIDTH, laser.width, failure) ||
+            !READ_VALUE(session, node + LASER_HEIGHT, laser.height, failure) ||
+            !READ_VALUE(session, node + LASER_RADIAN, laser.radian, failure)) {
             return failure;
         }
         if (!append_laser(&snapshot->enemy_lasers, laser)) {
@@ -271,23 +324,23 @@ static th10_snapshot_result read_resources(th10_session *session, th10_snapshot 
     uint32_t address;
     size_t index;
 
-    if (!READ_VALUE(session, 0x00477818u, manager, failure)) {
+    if (!READ_VALUE(session, TH10_RESOURCE_MANAGER_ADDRESS, manager, failure)) {
         return failure;
     }
     if (manager == 0) {
         return snapshot_not_in_game();
     }
-    address = manager + 0x3C4u;
-    for (index = 0; index < RESOURCE_SLOT_COUNT; ++index, address += 0x3F0u) {
+    address = manager + RESOURCE_SLOTS;
+    for (index = 0; index < RESOURCE_SLOT_COUNT; ++index, address += RESOURCE_STRIDE) {
         uint32_t active = 0;
         th10_point resource;
-        if (!READ_VALUE(session, address + 0x2Cu, active, failure)) {
+        if (!READ_VALUE(session, address + RESOURCE_ACTIVE, active, failure)) {
             return failure;
         }
         if (active == 0) {
             continue;
         }
-        if (!READ_VALUE(session, address - 0x4u, resource.x, failure) ||
+        if (!READ_VALUE(session, address - RESOURCE_X_BIAS, resource.x, failure) ||
             !READ_VALUE(session, address, resource.y, failure)) {
             return failure;
         }
@@ -306,9 +359,9 @@ th10_snapshot_result th10_read_snapshot(th10_session *session, th10_snapshot *sn
         return (th10_snapshot_result){.tag = TH10_SNAPSHOT_INVALID_ARGUMENT};
     }
     th10_snapshot_clear(snapshot);
-    if (!READ_VALUE(session, 0x00474C44u, snapshot->score, result) ||
-        !READ_VALUE(session, 0x00474C48u, snapshot->power, result) ||
-        !READ_VALUE(session, 0x00474C70u, snapshot->lives, result)) {
+    if (!READ_VALUE(session, TH10_SCORE_ADDRESS, snapshot->score, result) ||
+        !READ_VALUE(session, TH10_POWER_ADDRESS, snapshot->power, result) ||
+        !READ_VALUE(session, TH10_LIVES_ADDRESS, snapshot->lives, result)) {
         return result;
     }
     snapshot->game_over = snapshot->lives == -1;
