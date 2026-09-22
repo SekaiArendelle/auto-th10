@@ -60,7 +60,7 @@ void th10_snapshot_clear(th10_snapshot *snapshot) {
     snapshot->player = (th10_point){0};
     snapshot->score = 0;
     snapshot->power = 0;
-    snapshot->hp = 0;
+    snapshot->lives = 0;
     snapshot->game_over = 0;
     snapshot->enemies.size = 0;
     snapshot->enemy_bullets.size = 0;
@@ -308,10 +308,10 @@ th10_snapshot_result th10_read_snapshot(th10_session *session, th10_snapshot *sn
     th10_snapshot_clear(snapshot);
     if (!READ_VALUE(session, 0x00474C44u, snapshot->score, result) ||
         !READ_VALUE(session, 0x00474C48u, snapshot->power, result) ||
-        !READ_VALUE(session, 0x00474C70u, snapshot->hp, result)) {
+        !READ_VALUE(session, 0x00474C70u, snapshot->lives, result)) {
         return result;
     }
-    snapshot->game_over = snapshot->hp == -1;
+    snapshot->game_over = snapshot->lives == -1;
 
     result = read_player(session, snapshot);
     if (result.tag != TH10_SNAPSHOT_SUCCESS) return result;

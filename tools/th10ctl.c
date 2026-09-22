@@ -316,8 +316,8 @@ static void print_snapshot_human(const th10_snapshot *snapshot, bool verbose) {
 
     printf("player=");
     print_point(&snapshot->player);
-    printf(" score=%lu power=%u hp=%d game_over=%s\n", (unsigned long)snapshot->score,
-           (unsigned)snapshot->power, (int)snapshot->hp, snapshot->game_over ? "yes" : "no");
+    printf(" score=%lu power=%u lives=%d game_over=%s\n", (unsigned long)snapshot->score,
+           (unsigned)snapshot->power, (int)snapshot->lives, snapshot->game_over ? "yes" : "no");
     printf("  enemies=%zu enemy_bullets=%zu enemy_lasers=%zu resources=%zu\n",
            snapshot->enemies.size, snapshot->enemy_bullets.size, snapshot->enemy_lasers.size,
            snapshot->resources.size);
@@ -351,9 +351,9 @@ static void print_snapshot_human(const th10_snapshot *snapshot, bool verbose) {
 static void print_snapshot_json(const th10_snapshot *snapshot) {
     size_t index;
 
-    printf("{\"player\":[%.9g,%.9g],\"score\":%lu,\"power\":%u,\"hp\":%d,\"game_over\":%s,",
+    printf("{\"player\":[%.9g,%.9g],\"score\":%lu,\"power\":%u,\"lives\":%d,\"game_over\":%s,",
            (double)snapshot->player.x, (double)snapshot->player.y, (unsigned long)snapshot->score,
-           (unsigned)snapshot->power, (int)snapshot->hp, snapshot->game_over ? "true" : "false");
+           (unsigned)snapshot->power, (int)snapshot->lives, snapshot->game_over ? "true" : "false");
 
     fputs("\"enemies\":[", stdout);
     for (index = 0; index < snapshot->enemies.size; ++index) {
@@ -511,10 +511,10 @@ static bool command_watch(int interval_ms, long count) {
         if (g_json) {
             print_snapshot_json(&snapshot);
         } else {
-            printf("%7.2fs  player=(%7.2f,%7.2f)  score=%lu  power=%u  hp=%d  bullets=%zu  lasers=%zu"
+            printf("%7.2fs  player=(%7.2f,%7.2f)  score=%lu  power=%u  lives=%d  bullets=%zu  lasers=%zu"
                    "  enemies=%zu  resources=%zu  game_over=%s\n",
                    elapsed, (double)snapshot.player.x, (double)snapshot.player.y,
-                   (unsigned long)snapshot.score, (unsigned)snapshot.power, (int)snapshot.hp,
+                   (unsigned long)snapshot.score, (unsigned)snapshot.power, (int)snapshot.lives,
                    snapshot.enemy_bullets.size, snapshot.enemy_lasers.size, snapshot.enemies.size,
                    snapshot.resources.size, snapshot.game_over ? "yes" : "no");
         }

@@ -34,7 +34,7 @@ class Snapshot:
     player: Point
     score: int
     power: int
-    hp: int
+    lives: int
     game_over: bool
     enemies: tuple[Rect, ...]
     enemy_bullets: tuple[EnemyBullet, ...]
@@ -50,7 +50,7 @@ class Snapshot:
             player=point(value["player"]),
             score=int(value["score"]),
             power=int(value["power"]),
-            hp=int(value["hp"]),
+            lives=int(value["lives"]),
             game_over=bool(value["game_over"]),
             enemies=tuple(Rect(*map(float, item)) for item in value["enemies"]),
             enemy_bullets=tuple(EnemyBullet(*map(float, item)) for item in value["enemy_bullets"]),

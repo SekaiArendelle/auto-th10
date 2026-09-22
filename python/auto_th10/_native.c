@@ -328,7 +328,7 @@ static PyObject *session_snapshot(py_th10_session *self, PyObject *ignored) {
                                                         (double)self->snapshot.player.y)) < 0 ||
         dict_set_owned(result, "score", PyLong_FromUnsignedLong(self->snapshot.score)) < 0 ||
         dict_set_owned(result, "power", PyLong_FromUnsignedLong(self->snapshot.power)) < 0 ||
-        dict_set_owned(result, "hp", PyLong_FromLong(self->snapshot.hp)) < 0 ||
+        dict_set_owned(result, "lives", PyLong_FromLong(self->snapshot.lives)) < 0 ||
         dict_set_owned(result, "game_over", PyBool_FromLong(self->snapshot.game_over)) < 0 ||
         dict_set_owned(result, "enemies",
                        build_rects(self->snapshot.enemies.data, self->snapshot.enemies.size)) < 0 ||

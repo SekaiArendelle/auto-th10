@@ -78,7 +78,9 @@ typedef struct th10_snapshot {
     th10_point player;
     uint32_t score;
     uint16_t power;
-    int16_t hp;
+    /* Remaining lives, not hit points: 2, 1, 0 while the run is alive and -1
+     * once it is over. game_over repeats that -1 so callers need not know it. */
+    int16_t lives;
     uint8_t game_over;
     th10_rect_array enemies;
     th10_enemy_bullet_array enemy_bullets;

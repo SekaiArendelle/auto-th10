@@ -10,7 +10,7 @@ class SnapshotTests(unittest.TestCase):
                 "player": (1.0, 2.0),
                 "score": 100,
                 "power": 20,
-                "hp": 2,
+                "lives": 2,
                 "game_over": False,
                 "enemies": [(3.0, 4.0, 5.0, 6.0)],
                 "enemy_bullets": [(7.0, 8.0, 9.0, 10.0, 0.5, -0.5)],
