@@ -29,13 +29,30 @@ class WaitForTests(unittest.TestCase):
 
 class LeaveGameOverTests(unittest.TestCase):
     def test_confirms_the_ending_and_waits_for_the_next_run(self) -> None:
+        # The ending screen is one read, the new run is the next: it presses
+        # until the stage is back, then stops.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True), make_snapshot(score=1))
         )
 
         leave_game_over(session, timeout_s=1.0)
 
-        self.assertEqual(session.inputs, [Action.SHOOT, Action.NONE])
+        self.assertEqual(session.inputs[-2:], [Action.SHOOT, Action.NONE])
+        self.assertNotIn(Action.SHOOT, session.inputs[-1:])
+
+    def test_presses_on_through_the_screens_that_have_no_stage(self) -> None:
+        # Between the ending and the next run there is a menu with no stage
+        # behind it, and reading a snapshot there raises: the presses have to
+        # carry on rather than give up.
+        session = FakeSession(
+            snapshots=(make_snapshot(lives=-1, game_over=True), make_snapshot(score=4)),
+            no_stage_for=2,
+        )
+
+        leave_game_over(session, timeout_s=2.0)
+
+        self.assertEqual(len(session.inputs), 8)
+        self.assertEqual(session.inputs[-1], Action.NONE)
 
     def test_times_out_when_the_game_stays_on_the_ending(self) -> None:
         session = FakeSession(snapshots=(make_snapshot(lives=-1, game_over=True),))

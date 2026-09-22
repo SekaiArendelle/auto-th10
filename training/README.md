@@ -78,6 +78,48 @@ The name entry row is the one real unknown left, and it is the one the whole fla
 detour was for. It needs a session against the game to pin down: how many
 characters it wants, and whether it can be skipped.
 
+## The evasive policy
+
+`EvasivePolicy` is the scripted player. Every frame it enumerates the key
+combinations the game accepts - eight directions plus standing still, each at
+focus speed and at full speed - walks each candidate a dozen frames into the
+future past the bullets, lasers and enemies in the snapshot, and drops the ones
+that are hit. The survivors are ranked by a value function: low on the field and
+centred is safe, lined up under an enemy is where the shots land, near a resource
+point is worth the risk, and standing in the path of a bullet that is on its way
+costs. Only when no candidate survives does the ranking fall back on lasting the
+longest, and only when even that runs out within a few frames does it spend a
+bomb.
+
+The arithmetic is in `training/dodging.py` as pure functions over a Snapshot, so
+it can be tested without a game and tuned in one place. The constants and the
+shape of the value function come from TH10AI
+(`D:\projects\TH10AI\Src\GameManager.cpp`), a rule-based player for this same
+game that reads the same memory through the same offsets. Three differences are
+deliberate: the value is read once per move, at the position it ends on, rather
+than at every state a BFS passes through, which is what keeps the search cheap
+enough for Python; the walk looks twelve frames ahead where the reference searches
+four, which is still short enough that a move is not extrapolated far past what
+one key press can actually promise; and the bomb cooldown is a frame counter,
+because the snapshot carries no invulnerability flag to read.
+
+Two of these are worth knowing before tuning, because both were measured and both
+went the way that is not obvious. `horizon` wants to be *short*: lengthening it
+to a second of play made the policy worse, not better - it starts steering around
+bullets that are still far away, extrapolating a single held key for a second of
+flight, and in a stage whose bullets mostly fall it ends up living at the bottom
+edge. And the term that actually stops the policy standing still is
+`attack_value`, the penalty for a spot a bullet is flying towards: without it the
+value function parks the player in the middle of the bottom half and waits, which
+looks exactly like a policy that has stopped working. `INCOMING_RADIUS` is
+deliberately narrow for the same reason: a band wide enough to see the whole stage
+starts moving the player around the whole stage.
+
+Two numbers are assumptions rather than measurements, and both say so next to
+themselves: how a bullet's own velocity maps onto the frames the walk counts in
+(`BULLET_LEAD`), and what a laser's fields mean, which `laser_box()` copies box
+for box from the reference.
+
 ## Where it stands
 
 Both entry points expect a game that is already in a stage:
@@ -89,12 +131,16 @@ pixi run python -m training.collect --out runs/first.jsonl
 
 - `training/policy.py` - `FixedPolicy`, `EvasivePolicy` and `RandomPolicy`,
   behind one `Policy` boundary.
+- `training/dodging.py` - the geometry `EvasivePolicy` decides with: hazard
+  boxes, the frame a move is first hit on, and the value of a spot.
 - `training/loop.py` - `run_episode()` / `run_episodes()`, which hand every step
   and every episode to callbacks.
 - `training/collect.py` - JSONL rows under `runs/`, with a schema that is still
   provisional.
 - `training/train.py` - a stub: nothing here trains a model yet.
 
-Open: the name entry sequence above, the dataset schema until a real collection
-run says what the training side needs from it, and a model, which swaps in behind
-`Policy` without the loop noticing.
+Open: the name entry sequence above, tuning against a real stage - the entry
+points run, but nothing here has been tuned with the game in front of it, and
+`BULLET_LEAD` and the laser box are still guesses - the dataset schema until a
+real collection run says what the training side needs from it, and a model, which
+swaps in behind `Policy` without the loop noticing.

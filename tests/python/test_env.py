@@ -81,7 +81,7 @@ class ResetTests(unittest.TestCase):
         observation, _ = Th10Env(settings=EVAL_PRESET, session=session, require_stage=False).reset()
 
         self.assertEqual(observation.snapshot.score, 3)
-        self.assertEqual(session.inputs, [Action.SHOOT, Action.NONE])
+        self.assertEqual(session.inputs[-2:], [Action.SHOOT, Action.NONE])
 
     def test_reset_refuses_an_ending_this_environment_produced(self) -> None:
         session = FakeSession(
@@ -170,6 +170,22 @@ class StepTests(unittest.TestCase):
 
         with self.assertRaises(NotInStage):
             env.step(Action.NONE)
+
+    def test_step_ends_the_run_when_the_clock_stops_for_an_ending(self) -> None:
+        # A finished run freezes the stage clock, so the wait has to hand the
+        # step back and let it read the ending instead of timing out on it.
+        session = FakeSession(
+            states=(State.PLAYING,),
+            snapshots=(make_snapshot(score=5), make_snapshot(score=5, lives=-1, game_over=True)),
+            frame_step=0,
+        )
+        env = Th10Env(session=session, frame_timeout_s=0.02)
+        env.reset()
+
+        _, _, terminated, truncated, _ = env.step(Action.NONE)
+
+        self.assertTrue(terminated)
+        self.assertFalse(truncated)
 
     def test_the_reward_can_be_shaped(self) -> None:
         session = FakeSession(

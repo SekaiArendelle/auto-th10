@@ -69,11 +69,13 @@ class FakeSession:
         snapshots: tuple[Snapshot, ...] = (),
         frame_step: int = 1,
         record_broken: bool = False,
+        no_stage_for: int = 0,
     ) -> None:
         self._states = list(states) or [DEFAULT_STATE]
         self._snapshots = list(snapshots) or [make_snapshot()]
         self._frame_step = frame_step
         self._frame_value = 1000
+        self._no_stage = no_stage_for
         self.record_broken_value = record_broken
         self.inputs: list[object] = []
         self.focus_calls = 0
@@ -85,6 +87,9 @@ class FakeSession:
         return self._states[0]
 
     def snapshot(self) -> Snapshot:
+        if self._no_stage > 0:
+            self._no_stage -= 1
+            raise RuntimeError("gameplay is not active")
         if len(self._snapshots) > 1:
             return self._snapshots.pop(0)
         return self._snapshots[0]

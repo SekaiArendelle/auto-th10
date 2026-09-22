@@ -49,14 +49,41 @@ def wait_for(
 
 
 def leave_game_over(session: Session, *, timeout_s: float) -> None:
-    """Confirms the game over screen and waits for the game to leave it.
+    """Presses through the ending until the game is back in a stage.
 
-    Verified for the plain ending: <Z> on the default entry starts the next run.
-    The other ending - the one a record-breaking run gets - asks for a name
-    first, which type_name() does not do yet.
+    The ending is not one screen. There is the ending itself, and then the menu
+    the game puts up to ask whether to play on, and no stage exists behind
+    either of them - reading a snapshot there raises. So waiting for `game_over`
+    to clear is not enough, and one press is not enough either: the confirms
+    have to keep coming until a stage is there again.
+
+    Verified against a running game for the plain ending: <Z> clears the ending,
+    and further <Z> presses walk the menu into the next run. The other ending -
+    the one a record-breaking run gets - asks for a name first, which type_name()
+    does not do yet.
     """
-    tap(session, Action.SHOOT)
-    wait_for(session, lambda game: not game.snapshot().game_over, timeout_s=timeout_s)
+    deadline = time.monotonic() + timeout_s
+    while True:
+        tap(session, Action.SHOOT)
+        if _in_a_playable_stage(session):
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"the game did not leave the ending within {timeout_s:g} s"
+            )
+
+
+def _in_a_playable_stage(session: Session) -> bool:
+    """Whether the game is in a stage that has not ended.
+
+    Between one run and the next the game has no stage at all, and reading a
+    snapshot on those screens raises. That is not a failure here - it is the
+    answer "not yet", which is why the press loop keeps going.
+    """
+    try:
+        return not session.snapshot().game_over
+    except RuntimeError:
+        return False
 
 
 def type_name(session: Session) -> None:

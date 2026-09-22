@@ -234,12 +234,20 @@ class Th10Env:
         self.close()
 
     def _wait_for_next_frame(self) -> int:
+        """Waits for the game to move on, or hands the step back when it cannot.
+
+        A run that is over stops advancing the stage clock, so the wait would
+        time out on the ending rather than read it: the caller is handed back and
+        the snapshot that step() reads next is what says the run is over.
+        """
         deadline = time.monotonic() + self.frame_timeout_s
         while True:
             frames = self.session.stage_frames()
             if frames != self._frames:
                 return frames
             if time.monotonic() >= deadline:
+                if self.session.snapshot().game_over:
+                    return frames
                 raise NotInStage(
                     f"the stage frame counter stayed at {frames} for {self.frame_timeout_s:g} s: "
                     "the game is paused, in a menu, or gone"
