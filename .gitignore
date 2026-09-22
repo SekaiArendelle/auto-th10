@@ -4,6 +4,7 @@ venv/
 .vscode/
 .vs/
 dist/
+.reasonix/
 __pycache__/
 *.egg-info/
 runs/
