@@ -476,6 +476,24 @@ th10_state th10_read_state(th10_session *session);
  */
 bool th10_read_record_broken(th10_session *session);
 
+/**
+ * @brief Reads the stage frame counter, the game's own clock.
+ *
+ * The word at 0x00474C88 advances while a stage is playing and freezes while it
+ * is paused. It is the same word th10_read_state() samples twice to separate
+ * playing from paused, exposed on its own so that a caller can wait for the game
+ * to advance - or notice that it has stopped - without paying that built-in
+ * 120 ms.
+ *
+ * @param session The session from th10_open().
+ * @param out_frames Receives the counter on success.
+ * @return true when the read succeeded, false when the session is NULL or the
+ *         memory could not be read. The counter lives in the game's static data,
+ *         so a successful read says nothing about whether a stage is loaded; ask
+ *         th10_read_state() for that.
+ */
+bool th10_read_stage_frames(th10_session *session, uint32_t *out_frames);
+
 #ifdef __cplusplus
 }
 #endif

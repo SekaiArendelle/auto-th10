@@ -67,6 +67,8 @@ static void print_usage(void) {
            "  record                    report whether the run set a new high score,\n"
            "                            which decides whether a restart after a game\n"
            "                            over has to enter a name\n"
+           "  frames                    report the stage frame counter: it advances while\n"
+           "                            playing and freezes while paused\n"
            "  snapshot                  read and print one snapshot\n"
            "  shot [file.bmp]           capture the game window (works in the background)\n"
            "  hold <spec> <ms>          press actions for <ms>, then release them again\n"
@@ -721,6 +723,32 @@ static bool command_record(void) {
     return true;
 }
 
+/* Reports the stage frame counter, the game's own clock: it advances while a
+ * stage is playing and freezes while it is paused. Read twice, it tells "the
+ * game moved" from "the game stopped" without the 120 ms th10_read_state()
+ * spends on the same answer. */
+static bool command_frames(void) {
+    uint32_t frames = 0;
+
+    if (!attach_session(ATTACH_NORMAL)) {
+        return false;
+    }
+    if (!th10_read_stage_frames(g_session, &frames)) {
+        if (g_json) {
+            fputs("{\"error\":\"frames\"}\n", stderr);
+        } else {
+            fputs("frames failed: the counter could not be read\n", stderr);
+        }
+        return false;
+    }
+    if (g_json) {
+        printf("{\"frames\":%lu}\n", (unsigned long)frames);
+    } else {
+        printf("frames: %lu\n", (unsigned long)frames);
+    }
+    return true;
+}
+
 static bool command_info(void) {
     if (!attach_session(ATTACH_NORMAL)) {
         return false;
@@ -1044,6 +1072,8 @@ int main(int argc, char **argv) {
         status = command_state() ? 0 : 1;
     } else if (strcmp(command, "record") == 0) {
         status = command_record() ? 0 : 1;
+    } else if (strcmp(command, "frames") == 0) {
+        status = command_frames() ? 0 : 1;
     } else if (strcmp(command, "shot") == 0) {
         status = command_capture(index < argc ? argv[index] : NULL) ? 0 : 1;
     } else if (strcmp(command, "windows") == 0) {

@@ -177,6 +177,7 @@ The game has to be running, and it has to be the legally obtained one
 .\build\dev\th10ctl.exe -j snapshot         # the same, as JSON on stdout
 .\build\dev\th10ctl.exe state               # menu / playing / paused / game over
 .\build\dev\th10ctl.exe record              # did the run set a new high score
+.\build\dev\th10ctl.exe frames              # the stage frame counter: moves while playing
 .\build\dev\th10ctl.exe shot shot.bmp       # capture the window, works in the background
 .\build\dev\th10ctl.exe hold "shoot focus" 500
 .\build\dev\th10ctl.exe windows             # candidate windows when attach fails
