@@ -52,6 +52,32 @@ class EvasivePolicyTests(unittest.TestCase):
         self.assertIn(Action.FOCUS, action)
         self.assertFalse(action & (Action.LEFT | Action.RIGHT | Action.UP | Action.DOWN))
 
+    def test_taps_shoot_every_other_frame_on_a_quiet_screen(self) -> None:
+        actions = [self.decide() for _ in range(4)]
+
+        self.assertEqual([Action.SHOOT in action for action in actions], [True, False, True, False])
+
+    def test_keeps_shooting_when_more_than_one_enemy_is_present(self) -> None:
+        enemies = (make_enemy(-50.0, 100.0), make_enemy(50.0, 100.0))
+
+        actions = [self.decide(enemies=enemies) for _ in range(2)]
+
+        self.assertTrue(all(Action.SHOOT in action for action in actions))
+
+    def test_keeps_shooting_when_a_bullet_is_within_33_pixels(self) -> None:
+        bullet = make_bullet(33.0, 400.0)
+
+        actions = [self.decide(enemy_bullets=(bullet,)) for _ in range(2)]
+
+        self.assertTrue(all(Action.SHOOT in action for action in actions))
+
+    def test_a_bullet_beyond_33_pixels_does_not_stop_dialogue_tapping(self) -> None:
+        bullet = make_bullet(33.1, 400.0)
+
+        actions = [self.decide(enemy_bullets=(bullet,)) for _ in range(2)]
+
+        self.assertEqual([Action.SHOOT in action for action in actions], [True, False])
+
     def test_bombs_when_a_bullet_is_already_on_the_player(self) -> None:
         # Nothing can be reached: the bullet is hit on the very first frame.
         action = self.decide(enemy_bullets=(make_bullet(*PLAYER),))

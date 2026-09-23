@@ -89,7 +89,9 @@ centred is safe, lined up under an enemy is where the shots land, near a resourc
 point is worth the risk, and standing in the path of a bullet that is on its way
 costs. Only when no candidate survives does the ranking fall back on lasting the
 longest, and only when even that runs out within a few frames does it spend a
-bomb.
+bomb. On a quiet field - at most one enemy and no bullet within 33 pixels of the
+player - it also alternates the shoot key every frame. This is TH10AI's dialogue
+heuristic: repeated fresh Z presses advance dialogue while holding Z does not.
 
 The arithmetic is in `training/dodging.py` as pure functions over a Snapshot, so
 it can be tested without a game and tuned in one place. The constants and the

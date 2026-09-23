@@ -20,6 +20,13 @@ from auto_th10 import Action, Observation, Snapshot
 
 from . import dodging
 
+DIALOGUE_BULLET_RADIUS = 33.0
+"""How close a bullet has to be before a quiet screen counts as combat.
+
+TH10AI asks for bullets within ``maxDepth * playerSpeed[0] + 15`` pixels
+before using an empty result as its dialogue heuristic: 4 * 4.5 + 15 = 33.
+"""
+
 
 class Policy(Protocol):
     """Decides the action to hold until the next decision."""
@@ -142,9 +149,11 @@ class EvasivePolicy:
         self._moves = dodging.moves(focus=focus)
         self._cooldown = 0
         self._lives = 0
+        self._decisions = 0
 
     def decide(self, observation: Observation) -> Action:
         snapshot = observation.snapshot
+        self._decisions += 1
         self._forget_an_old_cooldown(snapshot)
         x, y = snapshot.player.x, snapshot.player.y
         boxes = dodging.boxes_from(
@@ -181,9 +190,27 @@ class EvasivePolicy:
 
         if frames <= self.bomb_frames and self._cooldown == 0:
             self._cooldown = self.bomb_cooldown_frames
-            return action | Action.SHOOT | Action.BOMB
+            return action | self._shoot_action(snapshot) | Action.BOMB
         self._cooldown = max(0, self._cooldown - 1)
-        return action | Action.SHOOT
+        return action | self._shoot_action(snapshot)
+
+    def _shoot_action(self, snapshot: Snapshot) -> Action:
+        """Hold shoot in combat, or tap it every other frame in dialogue.
+
+        The game exposes no dialogue state in the snapshot. TH10AI's practical
+        heuristic is a quiet field: at most one enemy and no bullet within 33
+        pixels of the player. Alternating the shoot bit advances dialogue much
+        faster than holding it continuously because the game sees fresh presses.
+        """
+        radius_sqr = DIALOGUE_BULLET_RADIUS**2
+        nearby_bullet = any(
+            (bullet.x - snapshot.player.x) ** 2 + (bullet.y - snapshot.player.y) ** 2
+            <= radius_sqr
+            for bullet in snapshot.enemy_bullets
+        )
+        if len(snapshot.enemies) <= 1 and not nearby_bullet:
+            return Action.SHOOT if self._decisions % 2 else Action.NONE
+        return Action.SHOOT
 
     def _forget_an_old_cooldown(self, snapshot: Snapshot) -> None:
         """Drops the bomb cooldown when a new run has begun.
