@@ -44,6 +44,26 @@ class RunEpisodeTests(unittest.TestCase):
 
         self.assertEqual(result.frames, result.steps)
 
+    def test_without_a_step_limit_it_runs_until_the_run_is_over(self) -> None:
+        env = build_env(
+            make_snapshot(),
+            make_snapshot(score=1),
+            make_snapshot(lives=-1, game_over=True),
+        )
+
+        result = run_episode(env, FixedPolicy(), max_steps=None)
+
+        self.assertEqual(result.ending, "game_over")
+        self.assertEqual(result.steps, 2)
+
+    def test_ending_on_the_final_allowed_step_is_a_game_over(self) -> None:
+        env = build_env(make_snapshot(), make_snapshot(lives=-1, game_over=True))
+
+        result = run_episode(env, FixedPolicy(), max_steps=1)
+
+        self.assertEqual(result.ending, "game_over")
+        self.assertEqual(result.steps, 1)
+
     def test_rejects_a_non_positive_step_limit(self) -> None:
         with self.assertRaises(ValueError):
             run_episode(build_env(make_snapshot()), FixedPolicy(), max_steps=0)

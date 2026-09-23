@@ -15,7 +15,7 @@ class EvaluateTests(unittest.TestCase):
 
         self.assertEqual(args.policy, "evasive")
         self.assertEqual(args.episodes, 1)
-        self.assertEqual(args.max_steps, 3600)
+        self.assertIsNone(args.max_steps)
 
     def test_the_json_report_is_one_object_per_episode_plus_a_summary(self) -> None:
         results = [

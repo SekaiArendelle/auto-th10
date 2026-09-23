@@ -51,15 +51,16 @@ def run_episode(
     policy: Policy,
     *,
     episode: int = 0,
-    max_steps: int = 3600,
+    max_steps: int | None = 3600,
     on_step: StepHook | None = None,
 ) -> EpisodeResult:
     """Plays one episode: reset, then step until the run ends or the cap is hit.
 
     `max_steps` is a guard, not a limit anybody should reach: one minute of play
-    at 60 frames is 3600 decisions.
+    at 60 frames is 3600 decisions. `None` drops the guard and runs until the
+    run ends on its own.
     """
-    if max_steps < 1:
+    if max_steps is not None and max_steps < 1:
         raise ValueError("max_steps must be positive")
     observation, _ = env.reset()
     first_frame = env.frames
@@ -67,7 +68,8 @@ def run_episode(
     terminated = False
     steps = 0
 
-    for steps in range(1, max_steps + 1):
+    while max_steps is None or steps < max_steps:
+        steps += 1
         action = policy.decide(observation)
         observation, reward, terminated, _, _ = env.step(action)
         total_reward += reward
@@ -100,7 +102,7 @@ def run_episodes(
     policy: Policy,
     episodes: int,
     *,
-    max_steps: int = 3600,
+    max_steps: int | None = 3600,
     on_step: StepHook | None = None,
     on_episode: EpisodeHook | None = None,
 ) -> list[EpisodeResult]:

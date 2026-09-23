@@ -30,7 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help="how many runs to play; more than one restarts after each ending",
     )
-    parser.add_argument("--max-steps", type=int, default=3600, help="decisions per episode")
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="decisions per episode; unlimited when omitted",
+    )
     parser.add_argument("--json", action="store_true", help="print one JSON object per line")
     return parser
 
