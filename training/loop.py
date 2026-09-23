@@ -18,13 +18,14 @@ from .policy import Policy
 
 @dataclass(frozen=True, slots=True)
 class Step:
-    """One decision and what it led to, as handed to a recorder."""
+    """One transition, from the observation used to decide through its result."""
 
     episode: int
     index: int
     observation: Observation
     action: Action
     reward: float
+    next_observation: Observation
     terminated: bool
 
 
@@ -70,6 +71,7 @@ def run_episode(
 
     while max_steps is None or steps < max_steps:
         steps += 1
+        previous_observation = observation
         action = policy.decide(observation)
         observation, reward, terminated, _, _ = env.step(action)
         total_reward += reward
@@ -78,9 +80,10 @@ def run_episode(
                 Step(
                     episode=episode,
                     index=steps - 1,
-                    observation=observation,
+                    observation=previous_observation,
                     action=action,
                     reward=reward,
+                    next_observation=observation,
                     terminated=terminated,
                 )
             )

@@ -135,14 +135,14 @@ pixi run python -m training.collect --out runs/first.jsonl
   behind one `Policy` boundary.
 - `training/dodging.py` - the geometry `EvasivePolicy` decides with: hazard
   boxes, the frame a move is first hit on, and the value of a spot.
-- `training/loop.py` - `run_episode()` / `run_episodes()`, which hand every step
-  and every episode to callbacks.
-- `training/collect.py` - JSONL rows under `runs/`, with a schema that is still
-  provisional.
+- `training/loop.py` - `run_episode()` / `run_episodes()`, which hand complete
+  state-action-state transitions and every episode to callbacks.
+- `training/dataset.py` - the versioned JSON representation of a transition,
+  including every field in both memory-backed observations.
+- `training/collect.py` - writes those transitions as JSONL rows under `runs/`.
 - `training/train.py` - a stub: nothing here trains a model yet.
 
 Open: the name entry sequence above, tuning against a real stage - the entry
 points run, but nothing here has been tuned with the game in front of it, and
-`BULLET_LEAD` and the laser box are still guesses - the dataset schema until a
-real collection run says what the training side needs from it, and a model, which
-swaps in behind `Policy` without the loop noticing.
+`BULLET_LEAD` and the laser box are still guesses - and a model, which swaps in
+behind `Policy` without the loop noticing.

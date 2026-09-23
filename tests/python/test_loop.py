@@ -75,6 +75,16 @@ class RunEpisodeTests(unittest.TestCase):
 
         self.assertEqual(result.steps, 1)
 
+    def test_a_step_keeps_the_observation_used_to_choose_its_action(self) -> None:
+        env = build_env(make_snapshot(score=10), make_snapshot(score=25, game_over=True))
+        steps = []
+
+        run_episode(env, FixedPolicy(), on_step=steps.append)
+
+        self.assertEqual(steps[0].observation.snapshot.score, 10)
+        self.assertEqual(steps[0].next_observation.snapshot.score, 25)
+        self.assertEqual(steps[0].reward, 15.0)
+
 
 class RunEpisodesTests(unittest.TestCase):
     def test_numbers_the_episodes_and_reports_each_one(self) -> None:

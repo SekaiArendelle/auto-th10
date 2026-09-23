@@ -1,10 +1,8 @@
-"""Records trajectories, one JSON object per step.
+"""Records complete trajectories, one JSON object per transition.
 
-The schema is provisional on purpose: it is settled after the reset behaviour has
-been validated against a real game. Until then the recorder writes what the loop
-already has - the small part of the observation a policy reads, plus the action
-and the reward - and leaves the bulk out unless asked, because a step carries up
-to a few hundred bullets and a minute of play carries thousands of steps.
+The versioned shape lives in `dataset.py`. Each row carries the observation used
+to choose the action and the observation that resulted, including all objects in
+the memory snapshot.
 
 Rows go to runs/<timestamp>.jsonl; runs/ is ignored by Git.
 """
@@ -19,6 +17,7 @@ import time
 
 from auto_th10 import NotInStage, Settings, Th10Env
 
+from .dataset import to_row
 from .loop import Step, run_episodes
 from .policy import POLICIES
 
@@ -44,7 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="where to write; defaults to runs/<timestamp>.jsonl",
     )
-    parser.add_argument("--bullets", action="store_true", help="also record every bullet position")
     return parser
 
 
@@ -61,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
 
             def record(step: Step) -> None:
                 nonlocal written
-                stream.write(json.dumps(to_row(step, with_bullets=args.bullets), sort_keys=True) + "\n")
+                stream.write(json.dumps(to_row(step), sort_keys=True) + "\n")
                 written += 1
 
             run_episodes(env, policy, args.episodes, max_steps=args.max_steps, on_step=record)
@@ -71,27 +69,6 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"wrote {written} step(s) to {output}")
     return 0
-
-
-def to_row(step: Step, *, with_bullets: bool) -> dict[str, object]:
-    snapshot = step.observation.snapshot
-    row: dict[str, object] = {
-        "episode": step.episode,
-        "step": step.index,
-        "score": snapshot.score,
-        "power": snapshot.power,
-        "lives": snapshot.lives,
-        "player": [snapshot.player.x, snapshot.player.y],
-        "enemies": len(snapshot.enemies),
-        "bullets": len(snapshot.enemy_bullets),
-        "lasers": len(snapshot.enemy_lasers),
-        "action": int(step.action),
-        "reward": step.reward,
-        "terminated": step.terminated,
-    }
-    if with_bullets:
-        row["bullet_positions"] = [[bullet.x, bullet.y] for bullet in snapshot.enemy_bullets]
-    return row
 
 
 if __name__ == "__main__":

@@ -3,9 +3,10 @@ import io
 import json
 import unittest
 
-from auto_th10 import Action
-from fakes import make_bullet, make_snapshot, observe
+from auto_th10 import Action, Point
+from fakes import make_bullet, make_enemy, make_laser, make_snapshot, observe
 from training import collect, evaluate
+from training.dataset import SCHEMA_VERSION
 from training.loop import EpisodeResult, Step
 
 
@@ -59,24 +60,50 @@ class CollectTests(unittest.TestCase):
             ),
             action=Action.SHOOT,
             reward=2.0,
+            next_observation=observe(make_snapshot(score=44, player=(11.0, 21.0))),
             terminated=False,
         )
 
-    def test_the_row_carries_what_a_policy_reads(self) -> None:
-        row = collect.to_row(self.step, with_bullets=False)
+    def test_the_row_carries_both_sides_of_the_transition(self) -> None:
+        row = collect.to_row(self.step)
 
-        self.assertEqual(row["score"], 42)
-        self.assertEqual(row["power"], 100)
-        self.assertEqual(row["player"], [10.0, 20.0])
-        self.assertEqual(row["bullets"], 1)
+        self.assertEqual(row["schema_version"], SCHEMA_VERSION)
+        self.assertEqual(row["observation"]["score"], 42)
+        self.assertEqual(row["observation"]["player"], {"x": 10.0, "y": 20.0})
+        self.assertEqual(row["next_observation"]["score"], 44)
         self.assertEqual(row["action"], int(Action.SHOOT))
         self.assertEqual(row["reward"], 2.0)
-        self.assertNotIn("bullet_positions", row)
 
-    def test_bullet_positions_are_opt_in(self) -> None:
-        row = collect.to_row(self.step, with_bullets=True)
+    def test_the_row_carries_every_snapshot_object_field(self) -> None:
+        step = Step(
+            episode=0,
+            index=0,
+            observation=observe(
+                make_snapshot(
+                    enemies=(make_enemy(3.0, 4.0, size=24.0),),
+                    enemy_bullets=(make_bullet(5.0, 6.0, size=8.0, dx=1.0, dy=2.0),),
+                    enemy_lasers=(make_laser(7.0, 8.0, size=10.0, radian=0.5),),
+                    resources=(Point(9.0, 10.0),),
+                )
+            ),
+            action=Action.NONE,
+            reward=0.0,
+            next_observation=observe(make_snapshot()),
+            terminated=False,
+        )
 
-        self.assertEqual(row["bullet_positions"], [[1.0, 2.0]])
+        snapshot = collect.to_row(step)["observation"]
+
+        self.assertEqual(snapshot["enemies"][0], {"x": 3.0, "y": 4.0, "width": 24.0, "height": 24.0})
+        self.assertEqual(
+            snapshot["enemy_bullets"][0],
+            {"x": 5.0, "y": 6.0, "width": 8.0, "height": 8.0, "dx": 1.0, "dy": 2.0},
+        )
+        self.assertEqual(
+            snapshot["enemy_lasers"][0],
+            {"x": 7.0, "y": 8.0, "width": 10.0, "height": 10.0, "radian": 0.5},
+        )
+        self.assertEqual(snapshot["resources"], [{"x": 9.0, "y": 10.0}])
 
     def test_rows_land_under_runs_by_default(self) -> None:
         args = collect.build_parser().parse_args([])
