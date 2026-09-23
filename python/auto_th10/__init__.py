@@ -10,7 +10,7 @@ from .env import (
     Th10Env,
     score_delta,
 )
-from .session import Action, GameplayNotActive, Scene, Session
+from .session import Action, GameNotFound, GameplayNotActive, Scene, SessionClosedError, Session
 from .types import EnemyBullet, EnemyLaser, Point, Rect, Snapshot
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "EnemyBullet",
     "EnemyLaser",
     "Frame",
+    "GameNotFound",
     "GameplayNotActive",
     "NotInStage",
     "Observation",
@@ -28,6 +29,7 @@ __all__ = [
     "Rect",
     "Scene",
     "Session",
+    "SessionClosedError",
     "Settings",
     "Snapshot",
     "TRAIN_PRESET",

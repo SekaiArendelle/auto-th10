@@ -1,7 +1,8 @@
 import unittest
 from unittest import mock
 
-from auto_th10 import Action, GameplayNotActive, Scene
+import auto_th10
+from auto_th10 import Action, GameplayNotActive, Scene, SessionClosedError
 from auto_th10 import session as session_module
 
 
@@ -74,8 +75,25 @@ class StageFramesTests(unittest.TestCase):
 
 
 class ExceptionTests(unittest.TestCase):
-    def test_gameplay_not_active_is_a_runtime_error(self) -> None:
-        self.assertTrue(issubclass(GameplayNotActive, RuntimeError))
+    """The names the binding puts on the failures it reports.
+
+    They are what the rest of the package catches by, so they have to reach the
+    package namespace, they have to stay RuntimeErrors - which is what all three
+    were before they had names - and they have to stay distinct from each other:
+    a closed session is not a game state, and catching one must not catch the
+    other.
+    """
+
+    def test_every_named_exception_is_exported_and_stays_a_runtime_error(self) -> None:
+        for name in ("GameNotFound", "GameplayNotActive", "SessionClosedError"):
+            exported = getattr(auto_th10, name)
+
+            self.assertIs(exported, getattr(session_module._native, name))
+            self.assertTrue(issubclass(exported, RuntimeError))
+            self.assertEqual(auto_th10.__all__.count(name), 1)
+
+    def test_a_closed_session_is_not_a_gameplay_state(self) -> None:
+        self.assertFalse(issubclass(SessionClosedError, GameplayNotActive))
 
     def test_snapshot_preserves_gameplay_not_active(self) -> None:
         class FakeNativeSession:

@@ -2,7 +2,9 @@
 #include <Python.h>
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "auto_th10/auto_th10.h"
 
@@ -13,11 +15,68 @@ typedef struct py_th10_session {
 } py_th10_session;
 
 static PyObject *gameplay_not_active_error;
+static PyObject *session_closed_error;
+static PyObject *game_not_found_error;
+
+/* Reports a Win32 failure that carries detail no OSError attribute can hold - an
+ * address, a byte count, how many events SendInput took. The code rides in
+ * winerror, so a caller can act on it without parsing the message, and CPython
+ * derives errno from it exactly as it does for the Windows errors it raises
+ * itself.
+ *
+ * A zero code is not a Win32 error and must not be dressed up as one: SendInput
+ * reports success when UIPI blocks the input, and an empty client area reports
+ * nothing at all (see the TH10_INPUT_SEND_FAILED and TH10_CAPTURE_CLIENT_RECT_FAILED
+ * members in the public header). Those keep the message and say so, because a
+ * winerror of None renders the exception as the unreadable "[WinError None] ...". */
+static int raise_windows_error(uint32_t win32_error, const char *format, ...) {
+    PyObject *message;
+    PyObject *arguments;
+    va_list list;
+
+    va_start(list, format);
+    message = PyUnicode_FromFormatV(format, list);
+    va_end(list);
+    if (message == NULL) {
+        return -1;
+    }
+    if (win32_error == 0) {
+        /* PyErr_Format() is checked against printf's conversions, which %U is
+         * not, so the text is built first. */
+        PyObject *text = PyUnicode_FromFormat("%U (Win32 reported no error)", message);
+        Py_DECREF(message);
+        if (text == NULL) {
+            return -1;
+        }
+        PyErr_SetObject(PyExc_OSError, text);
+        Py_DECREF(text);
+        return -1;
+    }
+    arguments = Py_BuildValue("(iOOi)", 0, message, Py_None, (int)win32_error);
+    Py_DECREF(message);
+    if (arguments == NULL) {
+        return -1;
+    }
+    PyErr_SetObject(PyExc_OSError, arguments);
+    Py_DECREF(arguments);
+    return -1;
+}
+
+/* The same report for a failed memory read, which is where the address and the
+ * byte counts come from. All three entry points that read a word of game memory
+ * describe a failure through this, so a Python caller sees the same exception
+ * and the same detail whichever one it was. */
+static int raise_read_failure(const th10_read_failure *failure) {
+    return raise_windows_error(failure->win32_error,
+                               "ReadProcessMemory failed at %p: requested %zu bytes, read %zu",
+                               (void *)(uintptr_t)failure->address, failure->requested_size,
+                               failure->bytes_read);
+}
 
 static int raise_open_result(th10_open_result result) {
     switch (result.tag) {
         case TH10_OPEN_WINDOW_NOT_FOUND:
-            PyErr_SetString(PyExc_RuntimeError, "TH10 game window not found");
+            PyErr_SetString(game_not_found_error, "TH10 game window not found");
             break;
         case TH10_OPEN_ENUM_WINDOWS_FAILED:
         case TH10_OPEN_GET_PROCESS_ID_FAILED:
@@ -28,7 +87,7 @@ static int raise_open_result(th10_open_result result) {
             PyErr_NoMemory();
             break;
         default:
-            PyErr_SetString(PyExc_RuntimeError, "invalid th10_open result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_open result");
             break;
     }
     return -1;
@@ -37,22 +96,19 @@ static int raise_open_result(th10_open_result result) {
 static int raise_input_result(th10_input_result result) {
     switch (result.tag) {
         case TH10_INPUT_INVALID_SESSION:
-            PyErr_SetString(PyExc_RuntimeError, "session is closed");
+            PyErr_SetString(session_closed_error, "session is closed");
             break;
         case TH10_INPUT_UNSUPPORTED_ACTION:
             PyErr_Format(PyExc_ValueError, "unsupported action bits: 0x%x",
                          result.value.unsupported_action.unsupported_bits);
             break;
         case TH10_INPUT_SEND_FAILED:
-            PyErr_Format(PyExc_OSError,
-                         "SendInput inserted %u of %u events (Win32 error %u; error may be zero "
-                         "when blocked by UIPI)",
-                         result.value.send_failed.inserted_count,
-                         result.value.send_failed.requested_count,
-                         result.value.send_failed.win32_error);
-            break;
+            return raise_windows_error(result.value.send_failed.win32_error,
+                                       "SendInput inserted %u of %u events",
+                                       result.value.send_failed.inserted_count,
+                                       result.value.send_failed.requested_count);
         default:
-            PyErr_SetString(PyExc_RuntimeError, "invalid th10_set_input result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_set_input result");
             break;
     }
     return -1;
@@ -61,7 +117,7 @@ static int raise_input_result(th10_input_result result) {
 static int raise_close_result(th10_close_result result) {
     switch (result.tag) {
         case TH10_CLOSE_INVALID_SESSION:
-            PyErr_SetString(PyExc_RuntimeError, "session is already closed");
+            PyErr_SetString(session_closed_error, "session is already closed");
             break;
         case TH10_CLOSE_INPUT_RELEASE_FAILED:
             return raise_input_result(result.value.input_release_failed);
@@ -69,14 +125,13 @@ static int raise_close_result(th10_close_result result) {
             PyErr_SetFromWindowsErr((int)result.value.handle_failed.win32_error);
             break;
         case TH10_CLOSE_INPUT_AND_HANDLE_FAILED:
-            PyErr_Format(PyExc_OSError,
-                         "input release failed with result tag %u and CloseHandle failed with "
-                         "Win32 error %u",
-                         (unsigned int)result.value.input_and_handle_failed.input.tag,
-                         result.value.input_and_handle_failed.win32_error);
-            break;
+            return raise_windows_error(result.value.input_and_handle_failed.win32_error,
+                                       "CloseHandle failed with Win32 error %u after releasing the "
+                                       "input failed with result tag %u",
+                                       result.value.input_and_handle_failed.win32_error,
+                                       (unsigned int)result.value.input_and_handle_failed.input.tag);
         default:
-            PyErr_SetString(PyExc_RuntimeError, "invalid th10_close result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_close result");
             break;
     }
     return -1;
@@ -86,20 +141,15 @@ static int raise_snapshot_result(th10_snapshot_result result) {
     static const char *array_names[] = {"enemies", "enemy bullets", "enemy lasers", "resources"};
     switch (result.tag) {
         case TH10_SNAPSHOT_INVALID_ARGUMENT:
-            PyErr_SetString(PyExc_RuntimeError, "invalid internal snapshot argument");
+            /* The binding passes its own session and its own snapshot, so this
+             * can only mean the two layers disagree about the struct. */
+            PyErr_SetString(PyExc_SystemError, "invalid internal snapshot argument");
             break;
         case TH10_SNAPSHOT_NOT_IN_GAME:
             PyErr_SetString(gameplay_not_active_error, "gameplay is not active");
             break;
         case TH10_SNAPSHOT_READ_FAILED:
-            PyErr_Format(PyExc_OSError,
-                         "ReadProcessMemory failed at 0x%llx: requested %zu bytes, read %zu "
-                         "(Win32 error %u)",
-                         (unsigned long long)result.value.read_failed.address,
-                         result.value.read_failed.requested_size,
-                         result.value.read_failed.bytes_read,
-                         result.value.read_failed.win32_error);
-            break;
+            return raise_read_failure(&result.value.read_failed);
         case TH10_SNAPSHOT_ALLOCATION_FAILED: {
             const unsigned int array = (unsigned int)result.value.allocation_failed.array;
             const char *name = array < sizeof(array_names) / sizeof(array_names[0])
@@ -111,7 +161,7 @@ static int raise_snapshot_result(th10_snapshot_result result) {
             break;
         }
         default:
-            PyErr_SetString(PyExc_RuntimeError, "invalid th10_read_snapshot result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_read_snapshot result");
             break;
     }
     return -1;
@@ -120,21 +170,59 @@ static int raise_snapshot_result(th10_snapshot_result result) {
 static int raise_record_result(th10_record_result result) {
     switch (result.tag) {
         case TH10_RECORD_INVALID_SESSION:
-            PyErr_SetString(PyExc_RuntimeError, "session is closed");
+            PyErr_SetString(session_closed_error, "session is closed");
             break;
         case TH10_RECORD_READ_FAILED:
-            PyErr_Format(PyExc_OSError,
-                         "ReadProcessMemory failed at 0x%llx: requested %zu bytes, read %zu "
-                         "(Win32 error %u)",
-                         (unsigned long long)result.value.read_failed.address,
-                         result.value.read_failed.requested_size,
-                         result.value.read_failed.bytes_read,
-                         result.value.read_failed.win32_error);
-            break;
+            return raise_read_failure(&result.value.read_failed);
         default:
-            PyErr_SetString(PyExc_RuntimeError, "invalid th10_read_record_broken result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_read_record_broken result");
             break;
     }
+    return -1;
+}
+
+static int raise_frames_result(th10_frames_result result) {
+    switch (result.tag) {
+        case TH10_FRAMES_INVALID_SESSION:
+            /* Unreachable behind ensure_open(), like the same tag in every other
+             * mapping here: the tag means "no usable session", not "the binding
+             * and the core disagree". */
+            PyErr_SetString(session_closed_error, "session is closed");
+            break;
+        case TH10_FRAMES_READ_FAILED:
+            return raise_read_failure(&result.value.read_failed);
+        default:
+            PyErr_SetString(PyExc_SystemError, "invalid th10_read_stage_frames result");
+            break;
+    }
+    return -1;
+}
+
+/* The same for a file failure. Those carry errno rather than a Win32 error, and
+ * they are about the path that was being written, which belongs on the exception
+ * either way. A zero errno is not a cause - a short write is the usual way to get
+ * one, and fwrite() need not set errno for it - so that case says what failed
+ * instead of decoding 0. */
+static int raise_file_error(uint32_t error_number, PyObject *path, const char *what) {
+    PyObject *message;
+    PyObject *arguments;
+
+    if (error_number != 0) {
+        errno = (int)error_number;
+        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+        return -1;
+    }
+    message = PyUnicode_FromFormat("the capture file could not be %s", what);
+    if (message == NULL) {
+        return -1;
+    }
+    arguments = Py_BuildValue("(iOO)", 0, message, path);
+    Py_DECREF(message);
+    if (arguments == NULL) {
+        return -1;
+    }
+    PyErr_SetObject(PyExc_OSError, arguments);
+    Py_DECREF(arguments);
     return -1;
 }
 
@@ -162,12 +250,11 @@ static int raise_capture_result(th10_capture_result result, PyObject *path) {
             PyErr_SetFromWindowsErr((int)result.win32_error);
             break;
         case TH10_CAPTURE_FILE_OPEN_FAILED:
+            return raise_file_error(result.win32_error, path, "opened");
         case TH10_CAPTURE_FILE_WRITE_FAILED:
-            errno = (int)result.win32_error;
-            PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
-            break;
+            return raise_file_error(result.win32_error, path, "written");
         default:
-            PyErr_SetString(PyExc_RuntimeError, "invalid th10_capture result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_capture result");
             break;
     }
     return -1;
@@ -217,7 +304,7 @@ static void session_dealloc(py_th10_session *self) {
 
 static int ensure_open(py_th10_session *self) {
     if (self->session == NULL) {
-        PyErr_SetString(PyExc_RuntimeError, "session is closed");
+        PyErr_SetString(session_closed_error, "session is closed");
         return -1;
     }
     return 0;
@@ -238,6 +325,27 @@ static PyObject *session_close(py_th10_session *self, PyObject *ignored) {
     Py_RETURN_NONE;
 }
 
+/* The focus failures, kept out of session_focus() so the mapping can be tested
+ * without a game window to ask for the focus. */
+static int raise_focus_result(th10_focus_result result) {
+    switch (result.tag) {
+        case TH10_FOCUS_INVALID_SESSION:
+            PyErr_SetString(session_closed_error, "session is closed");
+            break;
+        case TH10_FOCUS_PERMISSION_AND_SET_REJECTED:
+            return raise_windows_error(result.value.permission_and_set_rejected.win32_error,
+                                       "AllowSetForegroundWindow failed and Windows rejected the "
+                                       "foreground-window request");
+        case TH10_FOCUS_REJECTED:
+            PyErr_SetString(PyExc_RuntimeError, "Windows rejected the foreground-window request");
+            break;
+        default:
+            PyErr_SetString(PyExc_SystemError, "invalid th10_focus result");
+            break;
+    }
+    return -1;
+}
+
 static PyObject *session_focus(py_th10_session *self, PyObject *ignored) {
     th10_focus_result result;
     (void)ignored;
@@ -245,25 +353,11 @@ static PyObject *session_focus(py_th10_session *self, PyObject *ignored) {
         return NULL;
     }
     result = th10_focus(self->session);
-    switch (result.tag) {
-        case TH10_FOCUS_SUCCESS:
-            Py_RETURN_NONE;
-        case TH10_FOCUS_INVALID_SESSION:
-            PyErr_SetString(PyExc_RuntimeError, "session is closed");
-            return NULL;
-        case TH10_FOCUS_REJECTED:
-            PyErr_SetString(PyExc_RuntimeError, "Windows rejected the foreground-window request");
-            return NULL;
-        case TH10_FOCUS_PERMISSION_AND_SET_REJECTED:
-            PyErr_Format(PyExc_OSError,
-                         "AllowSetForegroundWindow failed with Win32 error %u and Windows rejected "
-                         "the foreground-window request",
-                         result.value.permission_and_set_rejected.win32_error);
-            return NULL;
-        default:
-            PyErr_SetString(PyExc_RuntimeError, "invalid th10_focus result");
-            return NULL;
+    if (result.tag != TH10_FOCUS_SUCCESS) {
+        raise_focus_result(result);
+        return NULL;
     }
+    Py_RETURN_NONE;
 }
 
 static PyObject *session_set_input(py_th10_session *self, PyObject *argument) {
@@ -430,7 +524,9 @@ static PyObject *session_scene(py_th10_session *self, PyObject *ignored) {
     }
     scene = th10_read_scene(self->session);
     if ((unsigned int)scene >= sizeof(names) / sizeof(names[0])) {
-        PyErr_SetString(PyExc_RuntimeError, "invalid th10_read_scene result");
+        /* A scene outside the enumeration means the C header and this table
+         * disagree, which is a bug here, not a game state. */
+        PyErr_SetString(PyExc_SystemError, "invalid th10_read_scene result");
         return NULL;
     }
     return PyUnicode_FromString(names[(unsigned int)scene]);
@@ -455,17 +551,18 @@ static PyObject *session_record_broken(py_th10_session *self, PyObject *ignored)
 }
 
 static PyObject *session_stage_frames(py_th10_session *self, PyObject *ignored) {
-    uint32_t frames = 0;
+    th10_frames_result result;
     (void)ignored;
 
     if (ensure_open(self) < 0) {
         return NULL;
     }
-    if (!th10_read_stage_frames(self->session, &frames)) {
-        PyErr_SetString(PyExc_OSError, "the stage frame counter could not be read");
+    result = th10_read_stage_frames(self->session);
+    if (result.tag != TH10_FRAMES_SUCCESS) {
+        raise_frames_result(result);
         return NULL;
     }
-    return PyLong_FromUnsignedLong((unsigned long)frames);
+    return PyLong_FromUnsignedLong((unsigned long)result.value.frames);
 }
 
 static PyObject *session_capture(py_th10_session *self, PyObject *argument) {
@@ -541,6 +638,31 @@ static PyModuleDef module_definition = {
     .m_size = -1,
 };
 
+/* Creates one exception, publishes it under its short name, and keeps the
+ * reference in `slot` for the life of the process.
+ *
+ * The globals must hold a reference of their own: the mapping functions above
+ * run long after PyInit__native() returns, and the module can be torn down - or
+ * the interpreter finalized - while a Session still refers to one of these, which
+ * would leave the pointer dangling. A single-phase module has nowhere to hand the
+ * reference back, so it is released with the process. */
+static int add_exception(PyObject *module, PyObject **slot, const char *name, PyObject *base) {
+    const char *short_name = strrchr(name, '.');
+    PyObject *exception;
+
+    short_name = short_name == NULL ? name : short_name + 1;
+    exception = PyErr_NewException(name, base, NULL);
+    if (exception == NULL) {
+        return -1;
+    }
+    if (PyModule_AddObjectRef(module, short_name, exception) < 0) {
+        Py_DECREF(exception);
+        return -1;
+    }
+    *slot = exception;
+    return 0;
+}
+
 PyMODINIT_FUNC PyInit__native(void) {
     PyObject *module = PyModule_Create(&module_definition);
     PyObject *session_type;
@@ -555,15 +677,17 @@ PyMODINIT_FUNC PyInit__native(void) {
     }
     Py_DECREF(session_type);
 
-    gameplay_not_active_error =
-        PyErr_NewException("auto_th10.GameplayNotActive", PyExc_RuntimeError, NULL);
-    if (gameplay_not_active_error == NULL ||
-        PyModule_AddObjectRef(module, "GameplayNotActive", gameplay_not_active_error) < 0) {
-        Py_CLEAR(gameplay_not_active_error);
+    /* All three derive from RuntimeError, which is what they were before they
+     * had names: a caller that only knows the old behaviour keeps working. */
+    if (add_exception(module, &gameplay_not_active_error, "auto_th10.GameplayNotActive",
+                      PyExc_RuntimeError) < 0 ||
+        add_exception(module, &session_closed_error, "auto_th10.SessionClosedError",
+                      PyExc_RuntimeError) < 0 ||
+        add_exception(module, &game_not_found_error, "auto_th10.GameNotFound",
+                      PyExc_RuntimeError) < 0) {
         Py_DECREF(module);
         return NULL;
     }
-    Py_DECREF(gameplay_not_active_error);
 
 #define ADD_ACTION(name) \
     if (PyModule_AddIntConstant(module, #name, TH10_ACTION_##name) < 0) { \

@@ -68,4 +68,25 @@ if(AUTO_TH10_BUILD_TESTS)
     add_executable(test_c_api tests/c/test_c_api.c)
     target_link_libraries(test_c_api PRIVATE th10_core)
     add_test(NAME c_api COMMAND test_c_api)
+    if(AUTO_TH10_BUILD_PYTHON)
+        # The tag -> exception mapping lives in static functions of the binding,
+        # so this test includes the binding and starts an interpreter instead of
+        # loading the module it cannot call into. It needs pythonXYY.dll on PATH,
+        # which the pixi tasks provide when they run ctest.
+        add_executable(test_native_mapping tests/c/test_native_mapping.c)
+        target_link_libraries(test_native_mapping PRIVATE th10_core Python3::Module)
+        target_include_directories(test_native_mapping
+            PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        )
+        if(MSVC)
+            set_property(TARGET test_native_mapping PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+            target_compile_options(test_native_mapping PRIVATE /U_DEBUG)
+        else()
+            # -Wpedantic is left out because the binding's PyType_Slot tables are
+            # not written for it (ISO C forbids a function pointer in a void *
+            # slot), and the extension itself is not built with it either.
+            target_compile_options(test_native_mapping PRIVATE -Wall -Wextra)
+        endif()
+        add_test(NAME native_mapping COMMAND test_native_mapping)
+    endif()
 endif()

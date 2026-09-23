@@ -47,6 +47,12 @@ again in the sources:
   from the screen, so the episode lifecycle asks `record_broken()` instead. Its
   tagged C result keeps a read failure distinct from a clear flag, because an
   unknown ending must not be confirmed as though no name were due.
+- Failures and answers are told apart at the binding rather than here: a snapshot
+  read that fails because no stage is loaded raises `GameplayNotActive`, a closed
+  session raises `SessionClosedError`, and a tag the binding does not know raises
+  `SystemError`. Only the first means "the game is between runs", which is why the
+  episode lifecycle catches that one by name instead of catching every
+  `RuntimeError` and reading a closed session as a loading screen.
 
 ## Restart sequences
 

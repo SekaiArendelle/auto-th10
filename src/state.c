@@ -101,6 +101,21 @@ th10_record_result th10_read_record_broken(th10_session *session) {
 /* The word th10_read_state() samples twice to separate playing from paused,
  * exposed on its own so that a caller can wait for the game to advance without
  * paying that built-in 120 ms. */
-bool th10_read_stage_frames(th10_session *session, uint32_t *out_frames) {
-    return th10_read_memory(session, TH10_STAGE_FRAMES_ADDRESS, out_frames, sizeof(*out_frames), NULL);
+th10_frames_result th10_read_stage_frames(th10_session *session) {
+    th10_read_failure failure;
+    uint32_t frames = 0;
+
+    if (session == NULL) {
+        return (th10_frames_result){.tag = TH10_FRAMES_INVALID_SESSION};
+    }
+    if (!th10_read_memory(session, TH10_STAGE_FRAMES_ADDRESS, &frames, sizeof(frames), &failure)) {
+        return (th10_frames_result){
+            .tag = TH10_FRAMES_READ_FAILED,
+            .value.read_failed = failure,
+        };
+    }
+    return (th10_frames_result){
+        .tag = TH10_FRAMES_SUCCESS,
+        .value.frames = frames,
+    };
 }

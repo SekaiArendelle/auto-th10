@@ -13,6 +13,9 @@ bool th10_read_memory(th10_session *session, uintptr_t address, void *output, si
             .requested_size = size,
         };
     }
+    /* win32_error stays 0 on this path, which is how a caller tells "the read
+     * never started" from "ReadProcessMemory failed": a rejected argument is not
+     * a Win32 error, and GetLastError() at this point describes something else. */
     if (session == NULL || session->process == NULL || output == NULL || size == 0) {
         return false;
     }

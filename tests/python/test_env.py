@@ -7,6 +7,7 @@ from auto_th10 import (
     NotInStage,
     OnDeath,
     Scene,
+    SessionClosedError,
     Settings,
     Th10Env,
 )
@@ -141,6 +142,17 @@ class ResetTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "unexpected snapshot failure"):
             Th10Env(session=BrokenSession(), require_stage=False).reset()
+
+    def test_reset_propagates_a_closed_session(self) -> None:
+        # SessionClosedError derives from RuntimeError just as GameplayNotActive
+        # does, so this is the case that pins the rule down: the environment
+        # swallows one named failure, not the family it belongs to.
+        class ClosedSession(FakeSession):
+            def snapshot(self) -> object:
+                raise SessionClosedError("session is closed")
+
+        with self.assertRaises(SessionClosedError):
+            Th10Env(session=ClosedSession(), require_stage=False).reset()
 
     def test_a_record_flag_read_failure_stops_before_confirming_the_ending(self) -> None:
         session = FakeSession(

@@ -775,19 +775,30 @@ static bool command_record(void) {
  * game moved" from "the game stopped" without the 120 ms th10_read_state()
  * spends on the same answer. */
 static bool command_frames(void) {
-    uint32_t frames = 0;
+    th10_frames_result result;
+    uint32_t frames;
 
     if (!attach_session(ATTACH_NORMAL)) {
         return false;
     }
-    if (!th10_read_stage_frames(g_session, &frames)) {
+    result = th10_read_stage_frames(g_session);
+    if (result.tag != TH10_FRAMES_SUCCESS) {
         if (g_json) {
             fputs("{\"error\":\"frames\"}\n", stderr);
+        } else if (result.tag == TH10_FRAMES_READ_FAILED) {
+            fprintf(stderr,
+                    "frames failed: ReadProcessMemory at 0x%llx requested %zu bytes, read %zu "
+                    "(Win32 error %lu)\n",
+                    (unsigned long long)result.value.read_failed.address,
+                    result.value.read_failed.requested_size,
+                    result.value.read_failed.bytes_read,
+                    (unsigned long)result.value.read_failed.win32_error);
         } else {
-            fputs("frames failed: the counter could not be read\n", stderr);
+            fputs("frames failed: invalid session or result\n", stderr);
         }
         return false;
     }
+    frames = result.value.frames;
     if (g_json) {
         printf("{\"frames\":%lu}\n", (unsigned long)frames);
     } else {

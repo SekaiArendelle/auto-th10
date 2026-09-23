@@ -7,8 +7,14 @@ from types import TracebackType
 from . import _native
 from .types import Snapshot
 
+GameNotFound = _native.GameNotFound
+"""Raised when no running TH10 window could be found to attach to."""
+
 GameplayNotActive = _native.GameplayNotActive
 """Raised when no stage object exists for a gameplay snapshot."""
+
+SessionClosedError = _native.SessionClosedError
+"""Raised when a closed session is used again."""
 
 
 class Action(IntFlag):
@@ -96,7 +102,9 @@ class Session:
 
         Read this once the run is over: a set flag means the game is about to ask
         for a name and a restart has to type one, while a clear flag means
-        confirming the game over menu is enough.
+        confirming the game over menu is enough. A read that fails raises
+        `OSError` instead of answering false, so a broken read is never taken for
+        "no name is due".
         """
         return self._native.record_broken()
 

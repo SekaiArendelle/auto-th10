@@ -265,7 +265,7 @@ typedef struct th10_read_failure {
     uintptr_t address; /**< the address the read started at */
     size_t requested_size; /**< how many bytes were asked for */
     size_t bytes_read; /**< how many bytes ReadProcessMemory() reported */
-    uint32_t win32_error; /**< GetLastError() of the failed read */
+    uint32_t win32_error; /**< GetLastError() of the failed read; 0 when the read never started */
 } th10_read_failure;
 
 /**
@@ -529,6 +529,22 @@ typedef struct th10_record_result {
  */
 th10_record_result th10_read_record_broken(th10_session *session);
 
+/** @brief Why th10_read_stage_frames() returned what it did. */
+typedef enum th10_frames_result_tag {
+    TH10_FRAMES_SUCCESS = 0, /**< the counter was read; see value.frames */
+    TH10_FRAMES_INVALID_SESSION, /**< the session is NULL or already closed */
+    TH10_FRAMES_READ_FAILED /**< the counter could not be read; see value.read_failed */
+} th10_frames_result_tag;
+
+/** @brief The outcome of th10_read_stage_frames(). */
+typedef struct th10_frames_result {
+    th10_frames_result_tag tag;
+    union {
+        uint32_t frames; /**< the stage frame counter; valid on success */
+        th10_read_failure read_failed; /**< the read that failed */
+    } value;
+} th10_frames_result;
+
 /**
  * @brief Reads the stage frame counter, the game's own clock.
  *
@@ -539,13 +555,14 @@ th10_record_result th10_read_record_broken(th10_session *session);
  * 120 ms.
  *
  * @param session The session from th10_open().
- * @param out_frames Receives the counter on success.
- * @return true when the read succeeded, false when the session is NULL or the
- *         memory could not be read. The counter lives in the game's static data,
- *         so a successful read says nothing about whether a stage is loaded; ask
- *         th10_read_state() for that.
+ * @return TH10_FRAMES_SUCCESS with the counter in value.frames, or the reason it
+ *         could not be read. A caller that waits for the counter to move must
+ *         not read a failure as "the game has stopped": a read that failed says
+ *         nothing about the game. The counter also lives in the game's static
+ *         data, so a successful read says nothing about whether a stage is
+ *         loaded; ask th10_read_state() for that.
  */
-bool th10_read_stage_frames(th10_session *session, uint32_t *out_frames);
+th10_frames_result th10_read_stage_frames(th10_session *session);
 
 #ifdef __cplusplus
 }
