@@ -7,7 +7,16 @@ the restart tests need them.
 
 from __future__ import annotations
 
-from auto_th10 import EnemyBullet, EnemyLaser, Observation, Point, Rect, Scene, Snapshot
+from auto_th10 import (
+    EnemyBullet,
+    EnemyLaser,
+    GameplayNotActive,
+    Observation,
+    Point,
+    Rect,
+    Scene,
+    Snapshot,
+)
 
 DEFAULT_SCENE = Scene.STAGE
 
@@ -75,6 +84,7 @@ class FakeSession:
         frame_step: int = 1,
         frame_values: tuple[int, ...] = (),
         record_broken: bool = False,
+        record_broken_error: Exception | None = None,
         no_stage_for: int = 0,
         snapshot_gaps: tuple[int, ...] = (),
         freeze_after: int = 0,
@@ -90,6 +100,7 @@ class FakeSession:
         self._snapshot_gaps = set(snapshot_gaps)
         self._snapshot_reads = 0
         self.record_broken_value = record_broken
+        self.record_broken_error = record_broken_error
         self.inputs: list[object] = []
         self.focus_calls = 0
         self.closed = False
@@ -103,9 +114,9 @@ class FakeSession:
         self._snapshot_reads += 1
         if self._no_stage > 0:
             self._no_stage -= 1
-            raise RuntimeError("gameplay is not active")
+            raise GameplayNotActive("gameplay is not active")
         if self._snapshot_reads in self._snapshot_gaps:
-            raise RuntimeError("gameplay is not active")
+            raise GameplayNotActive("gameplay is not active")
         if len(self._snapshots) > 1:
             return self._snapshots.pop(0)
         return self._snapshots[0]
@@ -128,6 +139,8 @@ class FakeSession:
         self.focus_calls += 1
 
     def record_broken(self) -> bool:
+        if self.record_broken_error is not None:
+            raise self.record_broken_error
         return self.record_broken_value
 
     def close(self) -> None:

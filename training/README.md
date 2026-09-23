@@ -44,8 +44,9 @@ again in the sources:
   a high score that follows the current one) are documented in `src/internal.h`
   and in the public header.
 - A plain game over and the name entry a broken record gets cannot be told apart
-  from the screen, so the episode lifecycle asks `record_broken()` instead;
-  `th10_read_record_broken()` in `include/auto_th10/auto_th10.h` records why.
+  from the screen, so the episode lifecycle asks `record_broken()` instead. Its
+  tagged C result keeps a read failure distinct from a clear flag, because an
+  unknown ending must not be confirmed as though no name were due.
 
 ## Restart sequences
 

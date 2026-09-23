@@ -738,12 +738,30 @@ static bool command_scene(void) {
  * game over, it says whether the game will ask for a name, which is the one
  * thing separating the two ways a run can end. */
 static bool command_record(void) {
+    th10_record_result result;
     bool broken;
 
     if (!attach_session(ATTACH_NORMAL)) {
         return false;
     }
-    broken = th10_read_record_broken(g_session);
+    result = th10_read_record_broken(g_session);
+    if (result.tag != TH10_RECORD_SUCCESS) {
+        if (g_json) {
+            fputs("{\"error\":\"record\"}\n", stderr);
+        } else if (result.tag == TH10_RECORD_READ_FAILED) {
+            fprintf(stderr,
+                    "record failed: ReadProcessMemory at 0x%llx requested %zu bytes, read %zu "
+                    "(Win32 error %lu)\n",
+                    (unsigned long long)result.value.read_failed.address,
+                    result.value.read_failed.requested_size,
+                    result.value.read_failed.bytes_read,
+                    (unsigned long)result.value.read_failed.win32_error);
+        } else {
+            fputs("record failed: invalid session or result\n", stderr);
+        }
+        return false;
+    }
+    broken = result.value.broken;
     if (g_json) {
         printf("{\"record_broken\":%s}\n", broken ? "true" : "false");
     } else {

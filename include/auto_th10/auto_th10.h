@@ -492,6 +492,22 @@ typedef enum th10_state {
  */
 th10_state th10_read_state(th10_session *session);
 
+/** @brief Why th10_read_record_broken() returned what it did. */
+typedef enum th10_record_result_tag {
+    TH10_RECORD_SUCCESS = 0, /**< the flag was read; see value.broken */
+    TH10_RECORD_INVALID_SESSION, /**< the session is NULL or already closed */
+    TH10_RECORD_READ_FAILED /**< the event flag word could not be read; see value.read_failed */
+} th10_record_result_tag;
+
+/** @brief The outcome of th10_read_record_broken(). */
+typedef struct th10_record_result {
+    th10_record_result_tag tag;
+    union {
+        bool broken; /**< whether the high score was broken; valid on success */
+        th10_read_failure read_failed; /**< the read that failed */
+    } value;
+} th10_record_result;
+
 /**
  * @brief Reports whether the run that just ended set a new high score.
  *
@@ -506,11 +522,12 @@ th10_state th10_read_state(th10_session *session);
  * means confirming the game over menu is enough.
  *
  * @param session The session from th10_open().
- * @return true when the flag is set. False is returned both when the flag is
- *         clear and when the read failed: both mean the caller should not expect
- *         a name prompt, so the two need not be told apart for this question.
+ * @return TH10_RECORD_SUCCESS with the flag in value.broken, or the reason the
+ *         flag could not be read. A caller must not treat a read failure as a
+ *         clear flag: sending confirmation into an unknown ending could type
+ *         into the name-entry screen.
  */
-bool th10_read_record_broken(th10_session *session);
+th10_record_result th10_read_record_broken(th10_session *session);
 
 /**
  * @brief Reads the stage frame counter, the game's own clock.

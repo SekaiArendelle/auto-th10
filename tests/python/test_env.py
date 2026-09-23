@@ -90,10 +90,12 @@ class ResetTests(unittest.TestCase):
         )
         env = Th10Env(settings=EVAL_PRESET, session=session, require_stage=False)
         env.reset()
-        env.step(Action.NONE)
+        env.step(Action.RIGHT | Action.SHOOT)
 
         with self.assertRaises(NotInStage):
             env.reset()
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
 
     def test_a_second_episode_restarts_when_the_settings_say_so(self) -> None:
         session = FakeSession(
@@ -131,6 +133,39 @@ class ResetTests(unittest.TestCase):
         # is gone, which is what a snapshot that raises means.
         with self.assertRaises(NotInStage):
             Th10Env(session=FakeSession(no_stage_for=99)).reset()
+
+    def test_reset_propagates_an_unexpected_snapshot_runtime_error(self) -> None:
+        class BrokenSession(FakeSession):
+            def snapshot(self) -> object:
+                raise RuntimeError("unexpected snapshot failure")
+
+        with self.assertRaisesRegex(RuntimeError, "unexpected snapshot failure"):
+            Th10Env(session=BrokenSession(), require_stage=False).reset()
+
+    def test_a_record_flag_read_failure_stops_before_confirming_the_ending(self) -> None:
+        session = FakeSession(
+            snapshots=(make_snapshot(lives=-1, game_over=True),),
+            record_broken_error=OSError("record flag could not be read"),
+        )
+
+        with self.assertRaisesRegex(OSError, "record flag could not be read"):
+            Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False).reset()
+
+        self.assertEqual(session.inputs, [])
+
+    def test_a_record_flag_read_failure_releases_the_previous_episode_input(self) -> None:
+        session = FakeSession(
+            snapshots=(make_snapshot(), make_snapshot(lives=-1, game_over=True)),
+            record_broken_error=OSError("record flag could not be read"),
+        )
+        env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
+        env.reset()
+        env.step(Action.RIGHT | Action.SHOOT)
+
+        with self.assertRaisesRegex(OSError, "record flag could not be read"):
+            env.reset()
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
 
 
 class StepTests(unittest.TestCase):

@@ -10,7 +10,7 @@ from .env import (
     Th10Env,
     score_delta,
 )
-from .session import Action, Scene, Session
+from .session import Action, GameplayNotActive, Scene, Session
 from .types import EnemyBullet, EnemyLaser, Point, Rect, Snapshot
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "EnemyBullet",
     "EnemyLaser",
     "Frame",
+    "GameplayNotActive",
     "NotInStage",
     "Observation",
     "OnDeath",

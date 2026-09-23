@@ -1,6 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#include <errno.h>
 #include <stdlib.h>
 
 #include "auto_th10/auto_th10.h"
@@ -10,6 +11,8 @@ typedef struct py_th10_session {
     th10_session *session;
     th10_snapshot snapshot;
 } py_th10_session;
+
+static PyObject *gameplay_not_active_error;
 
 static int raise_open_result(th10_open_result result) {
     switch (result.tag) {
@@ -86,7 +89,7 @@ static int raise_snapshot_result(th10_snapshot_result result) {
             PyErr_SetString(PyExc_RuntimeError, "invalid internal snapshot argument");
             break;
         case TH10_SNAPSHOT_NOT_IN_GAME:
-            PyErr_SetString(PyExc_RuntimeError, "gameplay is not active");
+            PyErr_SetString(gameplay_not_active_error, "gameplay is not active");
             break;
         case TH10_SNAPSHOT_READ_FAILED:
             PyErr_Format(PyExc_OSError,
@@ -114,20 +117,54 @@ static int raise_snapshot_result(th10_snapshot_result result) {
     return -1;
 }
 
-static int raise_capture_result(th10_capture_result result) {
+static int raise_record_result(th10_record_result result) {
+    switch (result.tag) {
+        case TH10_RECORD_INVALID_SESSION:
+            PyErr_SetString(PyExc_RuntimeError, "session is closed");
+            break;
+        case TH10_RECORD_READ_FAILED:
+            PyErr_Format(PyExc_OSError,
+                         "ReadProcessMemory failed at 0x%llx: requested %zu bytes, read %zu "
+                         "(Win32 error %u)",
+                         (unsigned long long)result.value.read_failed.address,
+                         result.value.read_failed.requested_size,
+                         result.value.read_failed.bytes_read,
+                         result.value.read_failed.win32_error);
+            break;
+        default:
+            PyErr_SetString(PyExc_RuntimeError, "invalid th10_read_record_broken result");
+            break;
+    }
+    return -1;
+}
+
+static int raise_capture_result(th10_capture_result result, PyObject *path) {
     switch (result.tag) {
         case TH10_CAPTURE_INVALID_ARGUMENT:
             PyErr_SetString(PyExc_ValueError, "capture needs a path and an open game window");
             break;
         case TH10_CAPTURE_PRINT_WINDOW_FAILED:
-            PyErr_SetString(PyExc_RuntimeError, "PrintWindow could not render the game window");
+            if (result.win32_error == 0) {
+                PyErr_SetString(PyExc_RuntimeError, "PrintWindow could not render the game window");
+            } else {
+                PyErr_SetFromWindowsErr((int)result.win32_error);
+            }
             break;
         case TH10_CAPTURE_CLIENT_RECT_FAILED:
+            if (result.win32_error == 0) {
+                PyErr_SetString(PyExc_RuntimeError, "the game window client area is empty");
+            } else {
+                PyErr_SetFromWindowsErr((int)result.win32_error);
+            }
+            break;
         case TH10_CAPTURE_CREATE_DC_FAILED:
         case TH10_CAPTURE_CREATE_BITMAP_FAILED:
+            PyErr_SetFromWindowsErr((int)result.win32_error);
+            break;
         case TH10_CAPTURE_FILE_OPEN_FAILED:
         case TH10_CAPTURE_FILE_WRITE_FAILED:
-            PyErr_SetFromWindowsErr((int)result.win32_error);
+            errno = (int)result.win32_error;
+            PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
             break;
         default:
             PyErr_SetString(PyExc_RuntimeError, "invalid th10_capture result");
@@ -400,12 +437,18 @@ static PyObject *session_scene(py_th10_session *self, PyObject *ignored) {
 }
 
 static PyObject *session_record_broken(py_th10_session *self, PyObject *ignored) {
+    th10_record_result result;
     (void)ignored;
 
     if (ensure_open(self) < 0) {
         return NULL;
     }
-    if (th10_read_record_broken(self->session)) {
+    result = th10_read_record_broken(self->session);
+    if (result.tag != TH10_RECORD_SUCCESS) {
+        raise_record_result(result);
+        return NULL;
+    }
+    if (result.value.broken) {
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
@@ -439,7 +482,7 @@ static PyObject *session_capture(py_th10_session *self, PyObject *argument) {
     result = th10_capture(self->session, path);
     PyMem_Free(path);
     if (result.tag != TH10_CAPTURE_SUCCESS) {
-        raise_capture_result(result);
+        raise_capture_result(result, argument);
         return NULL;
     }
     return Py_BuildValue("(II)", (unsigned int)result.width, (unsigned int)result.height);
@@ -511,6 +554,16 @@ PyMODINIT_FUNC PyInit__native(void) {
         return NULL;
     }
     Py_DECREF(session_type);
+
+    gameplay_not_active_error =
+        PyErr_NewException("auto_th10.GameplayNotActive", PyExc_RuntimeError, NULL);
+    if (gameplay_not_active_error == NULL ||
+        PyModule_AddObjectRef(module, "GameplayNotActive", gameplay_not_active_error) < 0) {
+        Py_CLEAR(gameplay_not_active_error);
+        Py_DECREF(module);
+        return NULL;
+    }
+    Py_DECREF(gameplay_not_active_error);
 
 #define ADD_ACTION(name) \
     if (PyModule_AddIntConstant(module, #name, TH10_ACTION_##name) < 0) { \

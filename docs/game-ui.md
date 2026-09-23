@@ -103,9 +103,9 @@ What each value can and cannot say, all measured:
 - `TH10_STATE_MENU` is six screens under one value: the title, RANK, PLAYER
   SELECT, WEAPON SELECT, the replay list, and the name entry.
 - The screens between runs have no stage object behind them, so a snapshot read
-  fails there - `RuntimeError: gameplay is not active` from Python. That is not a
-  fault to report: it is the answer "the game is between runs", and it is how the
-  episode lifecycle tells a stage from everything else.
+  fails there - `GameplayNotActive: gameplay is not active` from Python. That is
+  not a fault to report: it is the answer "the game is between runs", and it is
+  how the episode lifecycle tells a stage from everything else.
 
 ## Title menu
 

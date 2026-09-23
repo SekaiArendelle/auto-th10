@@ -7,6 +7,9 @@ from types import TracebackType
 from . import _native
 from .types import Snapshot
 
+GameplayNotActive = _native.GameplayNotActive
+"""Raised when no stage object exists for a gameplay snapshot."""
+
 
 class Action(IntFlag):
     NONE = _native.NONE

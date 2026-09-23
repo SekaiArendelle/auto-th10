@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from auto_th10 import Action, Scene
+from auto_th10 import Action, GameplayNotActive, Scene
 from auto_th10 import session as session_module
 
 
@@ -71,6 +71,22 @@ class StageFramesTests(unittest.TestCase):
             self.assertEqual(game.stage_frames(), 4242)
 
         self.assertEqual(fake.calls, 1)
+
+
+class ExceptionTests(unittest.TestCase):
+    def test_gameplay_not_active_is_a_runtime_error(self) -> None:
+        self.assertTrue(issubclass(GameplayNotActive, RuntimeError))
+
+    def test_snapshot_preserves_gameplay_not_active(self) -> None:
+        class FakeNativeSession:
+            def snapshot(self) -> object:
+                raise GameplayNotActive("gameplay is not active")
+
+        with mock.patch.object(session_module._native, "Session", lambda: FakeNativeSession()):
+            game = session_module.Session()
+
+        with self.assertRaises(GameplayNotActive):
+            game.snapshot()
 
 
 if __name__ == "__main__":

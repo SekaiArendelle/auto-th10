@@ -8,13 +8,14 @@ int main(void) {
     th10_snapshot_result snapshot_result = th10_read_snapshot(NULL, NULL);
     th10_input_result input_result = th10_set_input(NULL, TH10_ACTION_NONE);
     th10_close_result close_result = th10_close(NULL);
+    th10_record_result record_result = th10_read_record_broken(NULL);
     uint32_t frames = 0;
     assert(snapshot_result.tag == TH10_SNAPSHOT_INVALID_ARGUMENT);
     assert(input_result.tag == TH10_INPUT_INVALID_SESSION);
     assert(close_result.tag == TH10_CLOSE_INVALID_SESSION);
     assert(th10_focus(NULL).tag == TH10_FOCUS_INVALID_SESSION);
     assert(th10_capture(NULL, L"shot.bmp").tag == TH10_CAPTURE_INVALID_ARGUMENT);
-    assert(!th10_read_record_broken(NULL));
+    assert(record_result.tag == TH10_RECORD_INVALID_SESSION);
     assert(!th10_read_stage_frames(NULL, &frames));
     assert(!th10_read_stage_frames(NULL, NULL));
     th10_snapshot_init(&snapshot);

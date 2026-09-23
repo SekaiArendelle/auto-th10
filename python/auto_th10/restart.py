@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from .session import Action, Session
+from .session import Action, GameplayNotActive, Session
 
 TAP_SECONDS = 0.1
 """How long a menu key is held: long enough for a frame to see it, short enough
@@ -82,7 +82,7 @@ def _in_a_playable_stage(session: Session) -> bool:
     """
     try:
         return not session.snapshot().game_over
-    except RuntimeError:
+    except GameplayNotActive:
         return False
 
 

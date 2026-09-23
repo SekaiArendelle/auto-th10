@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 from . import restart
-from .session import Action, Scene, Session
+from .session import Action, GameplayNotActive, Scene, Session
 from .types import Snapshot
 
 PAUSE_SAMPLE_SECONDS = 0.12
@@ -171,6 +171,8 @@ class Th10Env:
         """
         snapshot = self._look()
         if snapshot is not None and snapshot.game_over:
+            if self._started:
+                self.session.set_input(Action.NONE)
             if self._started and self.settings.on_death is not OnDeath.RESTART:
                 raise NotInStage("the run is over and OnDeath is STOP: restart it in the game")
             self._leave_game_over()
@@ -252,7 +254,7 @@ class Th10Env:
         """
         try:
             return self.session.snapshot()
-        except RuntimeError:
+        except GameplayNotActive:
             return None
 
     def _require_startable(self) -> None:

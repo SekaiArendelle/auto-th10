@@ -60,6 +60,14 @@ class LeaveGameOverTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             leave_game_over(session, timeout_s=0.01)
 
+    def test_an_unexpected_runtime_error_is_not_treated_as_a_loading_screen(self) -> None:
+        class BrokenSession(FakeSession):
+            def snapshot(self) -> object:
+                raise RuntimeError("unexpected snapshot failure")
+
+        with self.assertRaisesRegex(RuntimeError, "unexpected snapshot failure"):
+            leave_game_over(BrokenSession(), timeout_s=1.0)
+
 
 class TypeNameTests(unittest.TestCase):
     def test_is_not_implemented(self) -> None:

@@ -79,16 +79,23 @@ th10_state th10_read_state(th10_session *session) {
     return frames_earlier != frames_later ? TH10_STATE_PLAYING : TH10_STATE_PAUSED;
 }
 
-bool th10_read_record_broken(th10_session *session) {
-    uint32_t flags;
+th10_record_result th10_read_record_broken(th10_session *session) {
+    th10_read_failure failure;
+    uint32_t flags = 0;
 
     if (session == NULL) {
-        return false;
+        return (th10_record_result){.tag = TH10_RECORD_INVALID_SESSION};
     }
-    if (!th10_read_memory(session, TH10_FLAGS_ADDRESS, &flags, sizeof(flags), NULL)) {
-        return false;
+    if (!th10_read_memory(session, TH10_FLAGS_ADDRESS, &flags, sizeof(flags), &failure)) {
+        return (th10_record_result){
+            .tag = TH10_RECORD_READ_FAILED,
+            .value.read_failed = failure,
+        };
     }
-    return (flags & FLAG_RECORD_BROKEN) != 0;
+    return (th10_record_result){
+        .tag = TH10_RECORD_SUCCESS,
+        .value.broken = (flags & FLAG_RECORD_BROKEN) != 0,
+    };
 }
 
 /* The word th10_read_state() samples twice to separate playing from paused,
