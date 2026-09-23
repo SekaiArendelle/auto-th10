@@ -136,15 +136,18 @@ class Th10Env:
         *,
         settings: Settings = EVAL_PRESET,
         frame_timeout_s: float = 2.0,
+        transition_timeout_s: float = 10.0,
         reward_fn: Callable[[Snapshot, Snapshot], float] = score_delta,
         require_stage: bool = True,
         session: Session | None = None,
     ) -> None:
         self.settings = settings
         self.frame_timeout_s = frame_timeout_s
+        self.transition_timeout_s = transition_timeout_s
         self.reward_fn = reward_fn
         self.session = Session() if session is None else session
         self._snapshot: Snapshot | None = None
+        self._stage_frames = 0
         self._frames = 0
         self._steps = 0
         self._started = False
@@ -180,7 +183,8 @@ class Th10Env:
         # window the keyboard and changes nothing about the run, so reading again
         # would only move the moment this observation describes.
         self._snapshot = snapshot
-        self._frames = self.session.stage_frames()
+        self._stage_frames = self.session.stage_frames()
+        self._frames = 0
         self._steps = 0
         self._started = True
         return Observation(snapshot=snapshot), {}
@@ -201,8 +205,12 @@ class Th10Env:
             raise NotInStage("the episode has not started: call reset() before step()")
         previous = self._snapshot
         self.session.set_input(action)
-        self._frames = self._wait_for_next_frame()
-        snapshot = self.session.snapshot()
+        try:
+            stage_frames, snapshot = self._wait_for_next_snapshot()
+        except BaseException:
+            self.session.set_input(Action.NONE)
+            raise
+        self._advance_frame_count(stage_frames)
         self._snapshot = snapshot
         self._steps += 1
         reward = 0.0 if previous is None else self.reward_fn(previous, snapshot)
@@ -212,7 +220,11 @@ class Th10Env:
 
     @property
     def frames(self) -> int:
-        """The last stage frame counter the environment saw."""
+        """How many stage frames the current episode has covered.
+
+        The game's counter can restart between stages, so this is accumulated
+        rather than exposing the latest raw value.
+        """
         return self._frames
 
     @property
@@ -286,24 +298,43 @@ class Th10Env:
             f"the game is {where}: enter a stage and leave the pause menu before starting the agent"
         )
 
-    def _wait_for_next_frame(self) -> int:
-        """Waits for the game to move on, or hands the step back when it cannot.
+    def _wait_for_next_snapshot(self) -> tuple[int, Snapshot]:
+        """Wait for a new frame whose gameplay snapshot is ready.
 
         A run that is over stops advancing the stage clock, so the wait would
-        time out on the ending rather than read it: the caller is handed back and
-        the snapshot that step() reads next is what says the run is over. Anything
-        else that stops the clock says which it was, because the screen family is
-        free to read and tells a pause from a trip back to the menus.
+        time out on the ending; the snapshot read at that point is what says the
+        run is over. Between stages the clock can change before the next stage
+        object exists. That is a loading gap, not the end of the episode: release
+        the held action and wait separately for the snapshot to become readable.
         """
-        deadline = time.monotonic() + self.frame_timeout_s
+        frame_deadline = time.monotonic() + self.frame_timeout_s
+        transition_deadline: float | None = None
+        input_released = False
         while True:
             frames = self.session.stage_frames()
-            if frames != self._frames:
-                return frames
-            if time.monotonic() >= deadline:
+            if frames != self._stage_frames or transition_deadline is not None:
+                snapshot = self._look()
+                if snapshot is not None:
+                    return frames, snapshot
+                if not input_released:
+                    self.session.set_input(Action.NONE)
+                    input_released = True
+                if self.session.scene() is Scene.MENU:
+                    raise NotInStage(
+                        "the game entered the menus while waiting for the next stage"
+                    )
+                now = time.monotonic()
+                if transition_deadline is None:
+                    transition_deadline = now + self.transition_timeout_s
+                if now >= transition_deadline:
+                    raise NotInStage(
+                        "the next stage did not finish loading within "
+                        f"{self.transition_timeout_s:g} s"
+                    )
+            elif time.monotonic() >= frame_deadline:
                 snapshot = self._look()
                 if snapshot is not None and snapshot.game_over:
-                    return frames
+                    return frames, snapshot
                 if self.session.scene() is not Scene.STAGE:
                     raise NotInStage(
                         f"the game left the stage: the frame counter stayed at {frames} for "
@@ -314,6 +345,14 @@ class Th10Env:
                     "the game is paused, loading, or gone"
                 )
             time.sleep(self.poll_seconds)
+
+    def _advance_frame_count(self, stage_frames: int) -> None:
+        """Accumulate a raw stage clock that can restart between stages."""
+        if stage_frames > self._stage_frames:
+            self._frames += stage_frames - self._stage_frames
+        elif stage_frames < self._stage_frames:
+            self._frames += max(1, stage_frames)
+        self._stage_frames = stage_frames
 
     def _leave_game_over(self) -> None:
         if self.session.record_broken():

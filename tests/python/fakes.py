@@ -73,17 +73,22 @@ class FakeSession:
         scenes: tuple[Scene, ...] = (DEFAULT_SCENE,),
         snapshots: tuple[Snapshot, ...] = (),
         frame_step: int = 1,
+        frame_values: tuple[int, ...] = (),
         record_broken: bool = False,
         no_stage_for: int = 0,
+        snapshot_gaps: tuple[int, ...] = (),
         freeze_after: int = 0,
     ) -> None:
         self._scenes = list(scenes) or [DEFAULT_SCENE]
         self._snapshots = list(snapshots) or [make_snapshot()]
         self._frame_step = frame_step
+        self._frame_values = list(frame_values)
         self._frame_value = 1000
         self._frame_reads = 0
         self._freeze_after = freeze_after
         self._no_stage = no_stage_for
+        self._snapshot_gaps = set(snapshot_gaps)
+        self._snapshot_reads = 0
         self.record_broken_value = record_broken
         self.inputs: list[object] = []
         self.focus_calls = 0
@@ -95,8 +100,11 @@ class FakeSession:
         return self._scenes[0]
 
     def snapshot(self) -> Snapshot:
+        self._snapshot_reads += 1
         if self._no_stage > 0:
             self._no_stage -= 1
+            raise RuntimeError("gameplay is not active")
+        if self._snapshot_reads in self._snapshot_gaps:
             raise RuntimeError("gameplay is not active")
         if len(self._snapshots) > 1:
             return self._snapshots.pop(0)
@@ -104,6 +112,10 @@ class FakeSession:
 
     def stage_frames(self) -> int:
         self._frame_reads += 1
+        if self._frame_values:
+            if len(self._frame_values) > 1:
+                return self._frame_values.pop(0)
+            return self._frame_values[0]
         if self._freeze_after and self._frame_reads > self._freeze_after:
             self._frame_step = 0
         self._frame_value += self._frame_step

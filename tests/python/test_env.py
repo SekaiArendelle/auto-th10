@@ -184,6 +184,52 @@ class StepTests(unittest.TestCase):
         with self.assertRaises(NotInStage):
             env.step(Action.NONE)
 
+        self.assertEqual(session.inputs[-1], Action.NONE)
+
+    def test_step_waits_through_the_gap_between_stages(self) -> None:
+        session = FakeSession(
+            snapshots=(make_snapshot(score=10), make_snapshot(score=25)),
+            snapshot_gaps=(2, 3),
+            frame_values=(100, 101, 101, 0),
+        )
+        env = Th10Env(session=session)
+        env.reset()
+
+        observation, reward, terminated, _, _ = env.step(Action.SHOOT | Action.RIGHT)
+
+        self.assertEqual(observation.snapshot.score, 25)
+        self.assertEqual(reward, 15.0)
+        self.assertFalse(terminated)
+        self.assertEqual(session.inputs, [Action.SHOOT | Action.RIGHT, Action.NONE])
+        self.assertEqual(env.frames, 1)
+
+    def test_step_times_out_when_the_next_stage_never_finishes_loading(self) -> None:
+        session = FakeSession(
+            snapshot_gaps=tuple(range(2, 100)),
+            frame_values=(100, 101, 101, 0),
+        )
+        env = Th10Env(session=session, transition_timeout_s=0.01)
+        env.reset()
+
+        with self.assertRaisesRegex(NotInStage, "next stage did not finish loading"):
+            env.step(Action.SHOOT)
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+
+    def test_step_refuses_a_menu_reached_during_a_loading_gap(self) -> None:
+        session = FakeSession(
+            scenes=(Scene.STAGE, Scene.MENU),
+            snapshot_gaps=(2,),
+            frame_values=(100, 101, 101, 0),
+        )
+        env = Th10Env(session=session)
+        env.reset()
+
+        with self.assertRaisesRegex(NotInStage, "entered the menus"):
+            env.step(Action.SHOOT)
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+
     def test_step_ends_the_run_when_the_clock_stops_for_an_ending(self) -> None:
         # A finished run freezes the stage clock, so the wait has to hand the
         # step back and let it read the ending instead of timing out on it.

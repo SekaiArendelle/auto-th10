@@ -74,6 +74,11 @@ ending the environment produced itself is a different matter - `OnDeath.STOP`
 leaves it alone. That is why one episode keeps its ending on screen while several
 restart between them, which is what `Settings.for_episodes()` decides.
 
+A run continues across its stage-loading screens. The game's frame counter can
+change before the next stage object is ready, so `step()` releases the current
+keys and waits up to `transition_timeout_s` for a readable snapshot instead of
+ending the episode. A real menu is still refused immediately.
+
 The name entry row is the one real unknown left, and it is the one the whole flag
 detour was for. It needs a session against the game to pin down: how many
 characters it wants, and whether it can be skipped.
