@@ -5,7 +5,7 @@ from enum import Enum, IntFlag
 from types import TracebackType
 
 from . import _native
-from .types import Snapshot, Ui
+from .types import ScreenState, Snapshot
 
 GameNotFound = _native.GameNotFound
 """Raised when no running TH10 window could be found to attach to."""
@@ -48,14 +48,14 @@ class Scene(str, Enum):
     STAGE = "TH10_SCENE_STAGE"
 
 
-class Screen(str, Enum):
-    """The screen the game is driving, straight from the game's own id.
+class ScreenKind(str, Enum):
+    """The kind of screen the game is driving, straight from the game's own id.
 
     This is finer than `Scene` and answers a different question. `Scene` says
     which family the game is in - a menu or a stage - and is deliberately blind
-    to everything below that; `Screen` knows only the three screens this binding
-    has measured (a stage, a menu, the Score Ranking name entry) and answers
-    UNKNOWN for every other one, of which the game has several.
+    to everything below that; `ScreenKind` names the page itself, and knows only
+    the three the binding has measured (a stage, a menu, the Score Ranking name
+    entry). Every other page answers UNKNOWN, and the game has several.
 
     It exists because it is the only read that tells an ending's menu from the
     name entry behind it: both run inside a stage family with the run over, so
@@ -67,10 +67,10 @@ class Screen(str, Enum):
     floor to 3.11).
     """
 
-    UNKNOWN = "TH10_UI_SCREEN_UNKNOWN"
-    STAGE = "TH10_UI_SCREEN_STAGE"
-    MENU = "TH10_UI_SCREEN_MENU"
-    NAME_ENTRY = "TH10_UI_SCREEN_NAME_ENTRY"
+    UNKNOWN = "TH10_SCREEN_KIND_UNKNOWN"
+    STAGE = "TH10_SCREEN_KIND_STAGE"
+    MENU = "TH10_SCREEN_KIND_MENU"
+    NAME_ENTRY = "TH10_SCREEN_KIND_NAME_ENTRY"
 
 
 class Session:
@@ -122,21 +122,22 @@ class Session:
         """
         return self._native.stage_frames()
 
-    def ui(self) -> Ui:
+    def screen(self) -> ScreenState:
         """The screen the game is driving, and that screen's cursor.
 
-        One pointer chase and one read, with nothing to wait for. This is the read
-        that tells an ending's menu from the name entry behind it: both run inside
-        a stage family with the run over, and nothing else an agent can see
-        separates them.
+        One pointer chase and one read, with nothing to wait for. The returned
+        `ScreenState.kind` is the page itself, finer than `scene()`'s family, and
+        this is the read that tells an ending's menu from the name entry behind
+        it: both run inside a stage family with the run over, and nothing else an
+        agent can see separates them.
         """
-        screen, cursor = self._native.ui()
-        return Ui(screen=Screen(screen), cursor=int(cursor))
+        kind, cursor = self._native.screen()
+        return ScreenState(kind=ScreenKind(kind), cursor=int(cursor))
 
-    def set_ui_cursor(self, cursor: int) -> int:
+    def set_screen_cursor(self, cursor: int) -> int:
         """Moves that cursor without a key press, and returns what the game reports.
 
-        This is the write side of `ui()`, and the reason it exists is the name
+        This is the write side of `screen()`, and the reason it exists is the name
         entry: its grid holds 91 cells and the screen is left by highlighting the
         last of them, so walking there is eighteen key presses that each have to
         arrive. Writing the cell the game keeps is one step, and it changes nothing
@@ -146,7 +147,7 @@ class Session:
         that screen's list raises `ValueError`. Confirming is still a key press:
         this only puts the highlight where a press would have put it.
         """
-        return int(self._native.set_ui_cursor(int(cursor)))
+        return int(self._native.set_screen_cursor(int(cursor)))
 
     def capture(self, path: str | os.PathLike[str]) -> tuple[int, int]:
         """Write the game window into `path` as a BMP; returns (width, height)."""

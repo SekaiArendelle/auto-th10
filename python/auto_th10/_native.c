@@ -198,7 +198,7 @@ static int raise_write_result(th10_write_result result) {
         case TH10_WRITE_FAILED:
             return raise_write_failure(&result.value.write_failed);
         default:
-            PyErr_SetString(PyExc_SystemError, "invalid th10_write_ui_cursor result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_write_screen_cursor result");
             break;
     }
     return -1;
@@ -555,7 +555,7 @@ static PyObject *session_scene(py_th10_session *self, PyObject *ignored) {
     return PyUnicode_FromString(names[(unsigned int)scene]);
 }
 
-static PyObject *session_set_ui_cursor(py_th10_session *self, PyObject *argument) {
+static PyObject *session_set_screen_cursor(py_th10_session *self, PyObject *argument) {
     th10_write_result result;
     const long entry = PyLong_AsLong(argument);
 
@@ -565,7 +565,7 @@ static PyObject *session_set_ui_cursor(py_th10_session *self, PyObject *argument
     if (ensure_open(self) < 0) {
         return NULL;
     }
-    result = th10_write_ui_cursor(self->session, (int32_t)entry);
+    result = th10_write_screen_cursor(self->session, (int32_t)entry);
     if (result.tag != TH10_WRITE_SUCCESS) {
         raise_write_result(result);
         return NULL;
@@ -574,49 +574,49 @@ static PyObject *session_set_ui_cursor(py_th10_session *self, PyObject *argument
     return PyLong_FromLong((long)result.value.cursor);
 }
 
-static int raise_ui_result(th10_ui_result result) {
+static int raise_screen_result(th10_screen_result result) {
     switch (result.tag) {
-        case TH10_UI_INVALID_SESSION:
+        case TH10_SCREEN_INVALID_SESSION:
             /* Unreachable behind ensure_open(), like the same tag in every other
              * mapping here: the tag means "no usable session", not "the binding
              * and the core disagree". */
             PyErr_SetString(session_closed_error, "session is closed");
             break;
-        case TH10_UI_READ_FAILED:
+        case TH10_SCREEN_READ_FAILED:
             return raise_read_failure(&result.value.read_failed);
         default:
-            PyErr_SetString(PyExc_SystemError, "invalid th10_read_ui result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_read_screen result");
             break;
     }
     return -1;
 }
 
-static PyObject *session_ui(py_th10_session *self, PyObject *ignored) {
+static PyObject *session_screen(py_th10_session *self, PyObject *ignored) {
     static const char *names[] = {
-        "TH10_UI_SCREEN_UNKNOWN",
-        "TH10_UI_SCREEN_STAGE",
-        "TH10_UI_SCREEN_MENU",
-        "TH10_UI_SCREEN_NAME_ENTRY",
+        "TH10_SCREEN_KIND_UNKNOWN",
+        "TH10_SCREEN_KIND_STAGE",
+        "TH10_SCREEN_KIND_MENU",
+        "TH10_SCREEN_KIND_NAME_ENTRY",
     };
-    th10_ui_result result;
+    th10_screen_result result;
     (void)ignored;
 
     if (ensure_open(self) < 0) {
         return NULL;
     }
-    result = th10_read_ui(self->session);
-    if (result.tag != TH10_UI_SUCCESS) {
-        raise_ui_result(result);
+    result = th10_read_screen(self->session);
+    if (result.tag != TH10_SCREEN_SUCCESS) {
+        raise_screen_result(result);
         return NULL;
     }
-    if ((unsigned int)result.value.ui.screen >= sizeof(names) / sizeof(names[0])) {
+    if ((unsigned int)result.value.state.kind >= sizeof(names) / sizeof(names[0])) {
         /* A screen outside the enumeration means the C header and this table
          * disagree, which is a bug here, not a game state. */
-        PyErr_SetString(PyExc_SystemError, "invalid th10_read_ui result");
+        PyErr_SetString(PyExc_SystemError, "invalid th10_read_screen result");
         return NULL;
     }
     return Py_BuildValue(
-        "(si)", names[(unsigned int)result.value.ui.screen], (int)result.value.ui.cursor);
+        "(si)", names[(unsigned int)result.value.state.kind], (int)result.value.state.cursor);
 }
 
 static PyObject *session_stage_frames(py_th10_session *self, PyObject *ignored) {
@@ -674,9 +674,9 @@ static PyMethodDef session_methods[] = {
     {"snapshot", (PyCFunction)session_snapshot, METH_NOARGS, "Read one complete gameplay snapshot."},
     {"scene", (PyCFunction)session_scene, METH_NOARGS,
      "Report the screen family: TH10_SCENE_MENU / STAGE / UNKNOWN. One read, no wait."},
-    {"ui", (PyCFunction)session_ui, METH_NOARGS,
-     "Report the screen the game is driving and its cursor as (screen, cursor)."},
-    {"set_ui_cursor", (PyCFunction)session_set_ui_cursor, METH_O,
+    {"screen", (PyCFunction)session_screen, METH_NOARGS,
+     "Report the screen the game is driving and its cursor as (kind, cursor)."},
+    {"set_screen_cursor", (PyCFunction)session_set_screen_cursor, METH_O,
      "Move that screen's cursor without a key press; returns what the game reports."},
     {"stage_frames", (PyCFunction)session_stage_frames, METH_NOARGS,
      "Read the stage frame counter: advances while playing, freezes while paused."},

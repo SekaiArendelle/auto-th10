@@ -98,91 +98,91 @@ th10_frames_result th10_read_stage_frames(th10_session *session) {
     };
 }
 
-/* Fields of the object the game hangs off TH10_UI_OBJECT_ADDRESS. See the note
- * next to that address for how each one was measured. */
+/* Fields of the object the game hangs off TH10_SCREEN_OBJECT_ADDRESS. See the
+ * note next to that address for how each one was measured. */
 enum {
-    UI_SCREEN_OFFSET = 0x04u,
+    SCREEN_KIND_OFFSET = 0x04u,
     /* Each cursor is kept twice, a word apart: the game writes the pair in step
      * and which of the two it reads back is not known, so both are written. */
-    UI_MENU_CURSOR_OFFSET = 0x24u,
-    UI_MENU_CURSOR_TWIN_OFFSET = 0x28u,
-    UI_NAME_CURSOR_OFFSET = 0xFCu,
-    UI_NAME_CURSOR_TWIN_OFFSET = 0x100u,
-    UI_SCREEN_STAGE = 6,
-    UI_SCREEN_MENU = 8,
-    UI_SCREEN_NAME_ENTRY = 12,
+    SCREEN_MENU_CURSOR_OFFSET = 0x24u,
+    SCREEN_MENU_CURSOR_TWIN_OFFSET = 0x28u,
+    SCREEN_NAME_CURSOR_OFFSET = 0xFCu,
+    SCREEN_NAME_CURSOR_TWIN_OFFSET = 0x100u,
+    SCREEN_ID_STAGE = 6,
+    SCREEN_ID_MENU = 8,
+    SCREEN_ID_NAME_ENTRY = 12,
     /* How many entries each screen's cursor runs over. The grid's count is 91
      * rather than 7 rows of 13 because its last row is full: cell 90 is `終`. */
-    UI_MENU_ENTRY_COUNT = 3,
-    UI_NAME_ENTRY_CELL_COUNT = 91,
+    SCREEN_MENU_ENTRY_COUNT = 3,
+    SCREEN_NAME_ENTRY_CELL_COUNT = 91,
 };
 
-static th10_ui_screen ui_screen_from_id(uint32_t id) {
+static th10_screen_kind screen_kind_from_id(uint32_t id) {
     switch (id) {
-    case UI_SCREEN_STAGE:
-        return TH10_UI_SCREEN_STAGE;
-    case UI_SCREEN_MENU:
-        return TH10_UI_SCREEN_MENU;
-    case UI_SCREEN_NAME_ENTRY:
-        return TH10_UI_SCREEN_NAME_ENTRY;
+    case SCREEN_ID_STAGE:
+        return TH10_SCREEN_KIND_STAGE;
+    case SCREEN_ID_MENU:
+        return TH10_SCREEN_KIND_MENU;
+    case SCREEN_ID_NAME_ENTRY:
+        return TH10_SCREEN_KIND_NAME_ENTRY;
     default:
-        return TH10_UI_SCREEN_UNKNOWN;
+        return TH10_SCREEN_KIND_UNKNOWN;
     }
 }
 
-th10_ui_result th10_read_ui(th10_session *session) {
+th10_screen_result th10_read_screen(th10_session *session) {
     th10_read_failure failure;
-    th10_ui_result result;
+    th10_screen_result result;
     uint32_t object = 0;
     uint32_t screen_id = 0;
     uint32_t cursor = 0;
     uintptr_t cursor_offset;
 
     if (session == NULL) {
-        return (th10_ui_result){.tag = TH10_UI_INVALID_SESSION};
+        return (th10_screen_result){.tag = TH10_SCREEN_INVALID_SESSION};
     }
 
     /* The object pointer moves as the game changes screen, so it is read on
      * every call rather than kept. A null pointer is not an error: it is the
      * game before it built its first screen, which is the same answer as a
      * screen this file has no id for. */
-    if (!th10_read_memory(session, TH10_UI_OBJECT_ADDRESS, &object, sizeof(object), &failure)) {
-        return (th10_ui_result){.tag = TH10_UI_READ_FAILED, .value.read_failed = failure};
+    if (!th10_read_memory(session, TH10_SCREEN_OBJECT_ADDRESS, &object, sizeof(object), &failure)) {
+        return (th10_screen_result){.tag = TH10_SCREEN_READ_FAILED, .value.read_failed = failure};
     }
-    result = (th10_ui_result){
-        .tag = TH10_UI_SUCCESS,
-        .value.ui = {.screen = TH10_UI_SCREEN_UNKNOWN, .cursor = 0},
+    result = (th10_screen_result){
+        .tag = TH10_SCREEN_SUCCESS,
+        .value.state = {.kind = TH10_SCREEN_KIND_UNKNOWN, .cursor = 0},
     };
     if (object == 0) {
         return result;
     }
-    if (!th10_read_memory(session, (uintptr_t)object + UI_SCREEN_OFFSET, &screen_id,
+    if (!th10_read_memory(session, (uintptr_t)object + SCREEN_KIND_OFFSET, &screen_id,
                           sizeof(screen_id), &failure)) {
-        return (th10_ui_result){.tag = TH10_UI_READ_FAILED, .value.read_failed = failure};
+        return (th10_screen_result){.tag = TH10_SCREEN_READ_FAILED, .value.read_failed = failure};
     }
-    result.value.ui.screen = ui_screen_from_id(screen_id);
+    result.value.state.kind = screen_kind_from_id(screen_id);
 
     /* Only the two screens that keep a cursor have one; a stage answers 0, which
      * is what its own fields happen to hold and not an entry. */
-    switch (result.value.ui.screen) {
-    case TH10_UI_SCREEN_MENU:
-        cursor_offset = UI_MENU_CURSOR_OFFSET;
+    switch (result.value.state.kind) {
+    case TH10_SCREEN_KIND_MENU:
+        cursor_offset = SCREEN_MENU_CURSOR_OFFSET;
         break;
-    case TH10_UI_SCREEN_NAME_ENTRY:
-        cursor_offset = UI_NAME_CURSOR_OFFSET;
+    case TH10_SCREEN_KIND_NAME_ENTRY:
+        cursor_offset = SCREEN_NAME_CURSOR_OFFSET;
         break;
     default:
         return result;
     }
     if (!th10_read_memory(session, (uintptr_t)object + cursor_offset, &cursor, sizeof(cursor),
                           &failure)) {
-        return (th10_ui_result){.tag = TH10_UI_READ_FAILED, .value.read_failed = failure};
+        return (th10_screen_result){.tag = TH10_SCREEN_READ_FAILED, .value.read_failed = failure};
     }
-    result.value.ui.cursor = (int32_t)cursor;
+    result.value.state.cursor = (int32_t)cursor;
     return result;
 }
 
-th10_write_result th10_write_ui_cursor(th10_session *session, int32_t entry) {
+th10_write_result th10_write_screen_cursor(th10_session *session, int32_t entry) {
     th10_read_failure read_failure;
     th10_write_failure write_failure;
     th10_write_result result;
@@ -197,7 +197,7 @@ th10_write_result th10_write_ui_cursor(th10_session *session, int32_t entry) {
     if (session == NULL) {
         return (th10_write_result){.tag = TH10_WRITE_INVALID_SESSION};
     }
-    if (!th10_read_memory(session, TH10_UI_OBJECT_ADDRESS, &object, sizeof(object), &read_failure)) {
+    if (!th10_read_memory(session, TH10_SCREEN_OBJECT_ADDRESS, &object, sizeof(object), &read_failure)) {
         return (th10_write_result){.tag = TH10_WRITE_READ_FAILED,
                                    .value.read_failed = read_failure};
     }
@@ -206,22 +206,22 @@ th10_write_result th10_write_ui_cursor(th10_session *session, int32_t entry) {
          * cursor: there is nothing here to move. */
         return (th10_write_result){.tag = TH10_WRITE_UNSUPPORTED_SCREEN};
     }
-    if (!th10_read_memory(session, (uintptr_t)object + UI_SCREEN_OFFSET, &screen_id,
+    if (!th10_read_memory(session, (uintptr_t)object + SCREEN_KIND_OFFSET, &screen_id,
                           sizeof(screen_id), &read_failure)) {
         return (th10_write_result){.tag = TH10_WRITE_READ_FAILED,
                                    .value.read_failed = read_failure};
     }
 
-    switch (ui_screen_from_id(screen_id)) {
-    case TH10_UI_SCREEN_MENU:
-        cursor_address = (uintptr_t)object + UI_MENU_CURSOR_OFFSET;
-        twin_address = (uintptr_t)object + UI_MENU_CURSOR_TWIN_OFFSET;
-        count = UI_MENU_ENTRY_COUNT;
+    switch (screen_kind_from_id(screen_id)) {
+    case TH10_SCREEN_KIND_MENU:
+        cursor_address = (uintptr_t)object + SCREEN_MENU_CURSOR_OFFSET;
+        twin_address = (uintptr_t)object + SCREEN_MENU_CURSOR_TWIN_OFFSET;
+        count = SCREEN_MENU_ENTRY_COUNT;
         break;
-    case TH10_UI_SCREEN_NAME_ENTRY:
-        cursor_address = (uintptr_t)object + UI_NAME_CURSOR_OFFSET;
-        twin_address = (uintptr_t)object + UI_NAME_CURSOR_TWIN_OFFSET;
-        count = UI_NAME_ENTRY_CELL_COUNT;
+    case TH10_SCREEN_KIND_NAME_ENTRY:
+        cursor_address = (uintptr_t)object + SCREEN_NAME_CURSOR_OFFSET;
+        twin_address = (uintptr_t)object + SCREEN_NAME_CURSOR_TWIN_OFFSET;
+        count = SCREEN_NAME_ENTRY_CELL_COUNT;
         break;
     default:
         return (th10_write_result){.tag = TH10_WRITE_UNSUPPORTED_SCREEN};

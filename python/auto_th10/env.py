@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 from . import restart
-from .session import Action, GameplayNotActive, Scene, Screen, Session
+from .session import Action, GameplayNotActive, Scene, ScreenKind, Session
 from .types import Snapshot
 
 PAUSE_SAMPLE_SECONDS = 0.12
@@ -397,7 +397,7 @@ class Th10Env:
         the game ended up somewhere no key may be sent from.
         """
         while True:
-            if self.session.ui().screen is Screen.NAME_ENTRY:
+            if self.session.screen().kind is ScreenKind.NAME_ENTRY:
                 if self.settings.on_name_entry is OnNameEntry.STOP:
                     raise NotInStage(
                         "the run reached the ranking and OnNameEntry is STOP: "
@@ -413,10 +413,10 @@ class Th10Env:
                 return
             except restart.NotAnEnding as misplaced:
                 # `game_over` becomes visible before the ranking has necessarily
-                # installed its name-entry UI object. If that transition finishes
+                # installed its name-entry screen object. If that transition finishes
                 # while leave_game_over() is looking for the ordinary ending menu,
                 # dispatch the newly visible screen instead of treating it as an
                 # unrelated menu. Any other refusal is still a hard boundary: it
                 # may be the title or a setup screen, where pressing on is unsafe.
-                if self.session.ui().screen is not Screen.NAME_ENTRY:
+                if self.session.screen().kind is not ScreenKind.NAME_ENTRY:
                     raise NotInStage(str(misplaced)) from misplaced

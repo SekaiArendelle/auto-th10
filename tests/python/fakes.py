@@ -16,9 +16,9 @@ from auto_th10 import (
     Point,
     Rect,
     Scene,
-    Screen,
+    ScreenKind,
+    ScreenState,
     Snapshot,
-    Ui,
 )
 
 DEFAULT_SCENE = Scene.STAGE
@@ -98,9 +98,9 @@ class FakeSession:
         no_stage_for: int = 0,
         snapshot_gaps: tuple[int, ...] = (),
         freeze_after: int = 0,
-        ui_screen: Screen = Screen.STAGE,
-        ui_cursor: int = 0,
-        ui_error: Exception | None = None,
+        screen_kind: ScreenKind = ScreenKind.STAGE,
+        screen_cursor: int = 0,
+        screen_error: Exception | None = None,
         refuse_cursor_writes: bool = False,
     ) -> None:
         self._scenes = list(scenes) or [DEFAULT_SCENE]
@@ -113,9 +113,9 @@ class FakeSession:
         self._no_stage = no_stage_for
         self._snapshot_gaps = set(snapshot_gaps)
         self._snapshot_reads = 0
-        self.ui_screen = ui_screen
-        self.ui_cursor = ui_cursor
-        self.ui_error = ui_error
+        self.screen_kind = screen_kind
+        self.screen_cursor = screen_cursor
+        self.screen_error = screen_error
         self.refuse_cursor_writes = refuse_cursor_writes
         self.inputs: list[object] = []
         self.focus_calls = 0
@@ -164,57 +164,60 @@ class FakeSession:
         value = int(action)
         if value == int(Action.NONE):
             return
-        if self.ui_screen is Screen.NAME_ENTRY:
+        if self.screen_kind is ScreenKind.NAME_ENTRY:
             self._apply_grid(value)
-        elif self.ui_screen is Screen.MENU:
+        elif self.screen_kind is ScreenKind.MENU:
             if value == int(Action.DOWN):
-                self.ui_cursor = (self.ui_cursor + 1) % MENU_ENTRIES
+                self.screen_cursor = (self.screen_cursor + 1) % MENU_ENTRIES
             elif value == int(Action.SHOOT):
-                self.ui_screen = Screen.STAGE  # 継続する starts the next run
-                self.ui_cursor = 0
+                self.screen_kind = ScreenKind.STAGE  # 継続する starts the next run
+                self.screen_cursor = 0
         elif value == int(Action.SHOOT):
             # The ending wears no menu of its own: one confirm opens it, and it
             # opens on its last entry (measured; the cursor is what a sequence has
             # to read rather than count from).
-            self.ui_screen = Screen.MENU
-            self.ui_cursor = MENU_ENTRIES - 1
+            self.screen_kind = ScreenKind.MENU
+            self.screen_cursor = MENU_ENTRIES - 1
 
     def _apply_grid(self, value: int) -> None:
-        row, column = divmod(self.ui_cursor, NAME_ENTRY_COLUMNS)
+        row, column = divmod(self.screen_cursor, NAME_ENTRY_COLUMNS)
         if value == int(Action.DOWN):
             row = min(row + 1, NAME_ENTRY_LAST_ROW)
         elif value == int(Action.RIGHT):
             column = (column + 1) % NAME_ENTRY_COLUMNS  # a row wraps at its end
         elif value == int(Action.SHOOT):
-            self.ui_screen = Screen.MENU  # 終 wrote the record and went back
-            self.ui_cursor = 0
+            self.screen_kind = ScreenKind.MENU  # 終 wrote the record and went back
+            self.screen_cursor = 0
             return
-        self.ui_cursor = row * NAME_ENTRY_COLUMNS + column
+        self.screen_cursor = row * NAME_ENTRY_COLUMNS + column
 
     def focus(self) -> None:
         self.focus_calls += 1
 
-    def ui(self) -> Ui:
-        if self.ui_error is not None:
-            raise self.ui_error
-        return Ui(screen=self.ui_screen, cursor=self.ui_cursor)
+    def screen(self) -> ScreenState:
+        if self.screen_error is not None:
+            raise self.screen_error
+        return ScreenState(kind=self.screen_kind, cursor=self.screen_cursor)
 
-    def set_ui_cursor(self, cursor: int) -> int:
-        """The write side of `ui()`, and it takes the cell the way the real one does.
+    def set_screen_cursor(self, cursor: int) -> int:
+        """The write side of `screen()`, and it takes the cell the way the real one does.
 
         `refuse_cursor_writes` makes the fake answer as a screen with no cursor
         does, which is what the restart sequences fall back from.
         """
-        if self.refuse_cursor_writes or self.ui_screen not in (Screen.MENU, Screen.NAME_ENTRY):
+        if self.refuse_cursor_writes or self.screen_kind not in (
+            ScreenKind.MENU,
+            ScreenKind.NAME_ENTRY,
+        ):
             raise RuntimeError("the screen the game is driving keeps no cursor")
         limit = (
             MENU_ENTRIES
-            if self.ui_screen is Screen.MENU
+            if self.screen_kind is ScreenKind.MENU
             else (NAME_ENTRY_LAST_ROW + 1) * NAME_ENTRY_COLUMNS
         )
         if not 0 <= cursor < limit:
             raise ValueError(f"entry {cursor} is outside the cursor's range 0..{limit - 1}")
-        self.ui_cursor = cursor
+        self.screen_cursor = cursor
         return cursor
 
     def close(self) -> None:

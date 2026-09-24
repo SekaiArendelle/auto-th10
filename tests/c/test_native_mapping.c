@@ -15,7 +15,7 @@
  * way CPython creates them.
  *
  * Only two checks are left out, and both need a live Session rather than a
- * hand-built result: session_scene()'s unknown-scene error and session_ui()'s
+ * hand-built result: session_scene()'s unknown-scene error and session_screen()'s
  * unknown-screen one. */
 #include "../../python/auto_th10/_native.c"
 
@@ -300,7 +300,7 @@ int main(void) {
     RAISE(raise_snapshot_result((th10_snapshot_result){.tag = (th10_snapshot_result_tag)999}));
     check_exception(PyExc_SystemError, "snapshot: an unknown tag is a binding bug");
 
-    /* th10_write_ui_cursor() */
+    /* th10_write_screen_cursor() */
     RAISE(raise_write_result((th10_write_result){.tag = TH10_WRITE_INVALID_SESSION}));
     check_exception(session_closed_error, "write: the session is closed");
     RAISE(raise_write_result((th10_write_result){.tag = TH10_WRITE_UNSUPPORTED_SCREEN}));
@@ -331,19 +331,19 @@ int main(void) {
     RAISE(raise_write_result((th10_write_result){.tag = (th10_write_result_tag)999}));
     check_exception(PyExc_SystemError, "write: an unknown tag is a binding bug");
 
-    /* th10_read_ui() */
-    RAISE(raise_ui_result((th10_ui_result){.tag = TH10_UI_INVALID_SESSION}));
-    check_exception(session_closed_error, "ui: the session is closed");
-    RAISE(raise_ui_result((th10_ui_result){
-        .tag = TH10_UI_READ_FAILED,
+    /* th10_read_screen() */
+    RAISE(raise_screen_result((th10_screen_result){.tag = TH10_SCREEN_INVALID_SESSION}));
+    check_exception(session_closed_error, "screen: the session is closed");
+    RAISE(raise_screen_result((th10_screen_result){
+        .tag = TH10_SCREEN_READ_FAILED,
         .value.read_failed = {.address = 0x477830u,
                               .requested_size = 4,
                               .bytes_read = 0,
                               .win32_error = 299},
     }));
-    check_attribute(PyExc_OSError, "winerror", "299", "ui: a failed read carries the code");
-    RAISE(raise_ui_result((th10_ui_result){.tag = (th10_ui_result_tag)999}));
-    check_exception(PyExc_SystemError, "ui: an unknown tag is a binding bug");
+    check_attribute(PyExc_OSError, "winerror", "299", "screen: a failed read carries the code");
+    RAISE(raise_screen_result((th10_screen_result){.tag = (th10_screen_result_tag)999}));
+    check_exception(PyExc_SystemError, "screen: an unknown tag is a binding bug");
 
     /* th10_read_stage_frames() */
     RAISE(raise_frames_result((th10_frames_result){

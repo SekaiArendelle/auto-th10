@@ -8,7 +8,7 @@ from auto_th10 import (
     NotInStage,
     OnDeath,
     Scene,
-    Screen,
+    ScreenKind,
     SessionClosedError,
     Settings,
     Th10Env,
@@ -135,8 +135,8 @@ class ResetTests(NoWaiting, unittest.TestCase):
         # what the lifecycle reads. Nothing is sent into the grid.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True),),
-            ui_screen=Screen.NAME_ENTRY,
-            ui_cursor=0,
+            screen_kind=ScreenKind.NAME_ENTRY,
+            screen_cursor=0,
         )
 
         with self.assertRaisesRegex(NotInStage, "waiting for a name"):
@@ -150,8 +150,8 @@ class ResetTests(NoWaiting, unittest.TestCase):
         # name, and the next run starts from the menu the confirm leaves behind.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True), make_snapshot(score=8)),
-            ui_screen=Screen.NAME_ENTRY,
-            ui_cursor=0,
+            screen_kind=ScreenKind.NAME_ENTRY,
+            screen_cursor=0,
         )
 
         observation, _ = Th10Env(
@@ -159,19 +159,19 @@ class ResetTests(NoWaiting, unittest.TestCase):
         ).reset()
 
         self.assertEqual(observation.snapshot.score, 8)
-        self.assertIs(session.ui_screen, Screen.STAGE)
+        self.assertIs(session.screen_kind, ScreenKind.STAGE)
 
     def test_reset_handles_a_name_entry_that_appears_during_restart(self) -> None:
         # The run's game-over flag can become visible before the ranking installs
-        # its UI object. The ordinary restart sees STAGE first and tries to open
+        # its screen object. The ordinary restart sees STAGE first and tries to open
         # the ending menu; if the name entry appears around that press, reset must
         # redispatch it instead of surfacing NotAnEnding and aborting evaluation's
         # next episode.
         class LateNameEntrySession(FakeSession):
             def _apply(self, action: object) -> None:
-                if self.ui_screen is Screen.STAGE and action == Action.SHOOT:
-                    self.ui_screen = Screen.NAME_ENTRY
-                    self.ui_cursor = 0
+                if self.screen_kind is ScreenKind.STAGE and action == Action.SHOOT:
+                    self.screen_kind = ScreenKind.NAME_ENTRY
+                    self.screen_cursor = 0
                     return
                 super()._apply(action)
 
@@ -190,7 +190,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
         observation, _ = env.reset()
 
         self.assertEqual(observation.snapshot.score, 8)
-        self.assertIs(session.ui_screen, Screen.STAGE)
+        self.assertIs(session.screen_kind, ScreenKind.STAGE)
         self.assertIn(Action.NONE, session.inputs)  # the previous episode's input was released
 
     def test_reset_refuses_a_stage_that_is_frozen(self) -> None:
@@ -241,30 +241,30 @@ class ResetTests(NoWaiting, unittest.TestCase):
 
         self.assertEqual(session.inputs[-1], Action.NONE)
 
-    def test_a_ui_read_failure_stops_before_confirming_the_ending(self) -> None:
+    def test_a_screen_read_failure_stops_before_confirming_the_ending(self) -> None:
         # The screen is what tells an ending's menu from the name entry behind it,
         # and a read that failed says neither: a confirm sent on the strength of it
         # could type into the ranking. The failure travels out instead.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True),),
-            ui_error=OSError("the game's ui could not be read"),
+            screen_error=OSError("the game's screen could not be read"),
         )
 
-        with self.assertRaisesRegex(OSError, "ui could not be read"):
+        with self.assertRaisesRegex(OSError, "screen could not be read"):
             Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False).reset()
 
         self.assertEqual(session.inputs, [])
 
-    def test_a_ui_read_failure_releases_the_previous_episode_input(self) -> None:
+    def test_a_screen_read_failure_releases_the_previous_episode_input(self) -> None:
         session = FakeSession(
             snapshots=(make_snapshot(), make_snapshot(lives=-1, game_over=True)),
-            ui_error=OSError("the game's ui could not be read"),
+            screen_error=OSError("the game's screen could not be read"),
         )
         env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
         env.reset()
         env.step(Action.RIGHT | Action.SHOOT)
 
-        with self.assertRaisesRegex(OSError, "ui could not be read"):
+        with self.assertRaisesRegex(OSError, "screen could not be read"):
             env.reset()
 
         self.assertEqual(session.inputs[-1], Action.NONE)

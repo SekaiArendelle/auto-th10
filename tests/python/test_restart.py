@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from auto_th10 import Action, Scene, Screen, Ui
+from auto_th10 import Action, Scene, ScreenKind, ScreenState
 from auto_th10 import restart as restart_module
 from auto_th10.restart import (
     NAME_ENTRY_DONE,
@@ -71,15 +71,15 @@ class LeaveGameOverTests(NoWaiting, unittest.TestCase):
                 Action.NONE,
             ],
         )
-        self.assertEqual(session.ui_cursor, 0)  # left on Continue, as written
+        self.assertEqual(session.screen_cursor, 0)  # left on Continue, as written
 
     def test_leaves_a_menu_that_is_already_open_alone(self) -> None:
         # After the name entry the menu is already up, and with its cursor on
         # Continue: opening it again would confirm whatever entry it holds.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True), make_snapshot(score=1)),
-            ui_screen=Screen.MENU,
-            ui_cursor=0,
+            screen_kind=ScreenKind.MENU,
+            screen_cursor=0,
         )
 
         leave_game_over(session, timeout_s=1.0)
@@ -116,8 +116,8 @@ class LeaveGameOverTests(NoWaiting, unittest.TestCase):
 
     def test_asserts_that_the_menu_cursor_write_was_read_back(self) -> None:
         class MisreportingSession(FakeSession):
-            def set_ui_cursor(self, cursor: int) -> int:
-                super().set_ui_cursor(cursor)
+            def set_screen_cursor(self, cursor: int) -> int:
+                super().set_screen_cursor(cursor)
                 return cursor + 1
 
         session = MisreportingSession(
@@ -135,8 +135,8 @@ class LeaveGameOverTests(NoWaiting, unittest.TestCase):
         # sent into the grid.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True),),
-            ui_screen=Screen.NAME_ENTRY,
-            ui_cursor=0,
+            screen_kind=ScreenKind.NAME_ENTRY,
+            screen_cursor=0,
         )
 
         with self.assertRaises(NotAnEnding):
@@ -155,7 +155,7 @@ class LeaveGameOverTests(NoWaiting, unittest.TestCase):
 
         session = StuckSession(
             snapshots=(make_snapshot(lives=-1, game_over=True),),
-            ui_screen=Screen.UNKNOWN,
+            screen_kind=ScreenKind.UNKNOWN,
         )
 
         with self.assertRaises(NotAnEnding):
@@ -170,8 +170,8 @@ class LeaveGameOverTests(NoWaiting, unittest.TestCase):
         # keeps the stage family - and nothing is pressed.
         session = FakeSession(
             scenes=(Scene.MENU,),
-            ui_screen=Screen.MENU,
-            ui_cursor=2,
+            screen_kind=ScreenKind.MENU,
+            screen_cursor=2,
         )
 
         with self.assertRaises(NotAnEnding):
@@ -210,34 +210,34 @@ class LeaveNameEntryTests(NoWaiting, unittest.TestCase):
         # for its own key handling to move: writing it puts the highlight there in
         # one step, where a walk would have taken eighteen presses. Confirming is
         # still a press.
-        session = FakeSession(ui_screen=Screen.NAME_ENTRY, ui_cursor=0)
+        session = FakeSession(screen_kind=ScreenKind.NAME_ENTRY, screen_cursor=0)
 
         leave_name_entry(session, timeout_s=5.0)
 
         self.assertEqual(session.inputs.count(Action.SHOOT), 1)
         self.assertEqual(set(session.inputs) - {Action.NONE, Action.SHOOT}, set())
         # 終 writes the record and puts the ending's own menu back on screen.
-        self.assertIs(session.ui_screen, Screen.MENU)
-        self.assertEqual(session.ui_cursor, 0)
+        self.assertIs(session.screen_kind, ScreenKind.MENU)
+        self.assertEqual(session.screen_cursor, 0)
 
     def test_stops_when_the_name_entry_cursor_cannot_be_written(self) -> None:
         session = FakeSession(
-            ui_screen=Screen.NAME_ENTRY, ui_cursor=0, refuse_cursor_writes=True
+            screen_kind=ScreenKind.NAME_ENTRY, screen_cursor=0, refuse_cursor_writes=True
         )
 
         with self.assertRaisesRegex(RuntimeError, "keeps no cursor"):
             leave_name_entry(session, timeout_s=5.0)
 
         self.assertEqual(session.inputs, [])
-        self.assertIs(session.ui_screen, Screen.NAME_ENTRY)
+        self.assertIs(session.screen_kind, ScreenKind.NAME_ENTRY)
 
     def test_asserts_that_the_name_entry_cursor_write_was_read_back(self) -> None:
         class MisreportingSession(FakeSession):
-            def set_ui_cursor(self, cursor: int) -> int:
-                super().set_ui_cursor(cursor)
+            def set_screen_cursor(self, cursor: int) -> int:
+                super().set_screen_cursor(cursor)
                 return cursor - 1
 
-        session = MisreportingSession(ui_screen=Screen.NAME_ENTRY, ui_cursor=0)
+        session = MisreportingSession(screen_kind=ScreenKind.NAME_ENTRY, screen_cursor=0)
 
         with self.assertRaisesRegex(AssertionError, "expected 90"):
             leave_name_entry(session, timeout_s=5.0)
@@ -245,7 +245,7 @@ class LeaveNameEntryTests(NoWaiting, unittest.TestCase):
         self.assertEqual(session.inputs, [])
 
     def test_does_nothing_when_the_screen_is_already_gone(self) -> None:
-        session = FakeSession(ui_screen=Screen.MENU, ui_cursor=0)
+        session = FakeSession(screen_kind=ScreenKind.MENU, screen_cursor=0)
 
         leave_name_entry(session, timeout_s=1.0)
 
@@ -254,20 +254,18 @@ class LeaveNameEntryTests(NoWaiting, unittest.TestCase):
     def test_reports_a_cell_outside_the_grid(self) -> None:
         # A cell the grid does not have is a wrong address or a changed layout, not
         # something to press towards.
-        session = FakeSession(ui_screen=Screen.NAME_ENTRY, ui_cursor=NAME_ENTRY_DONE + 1)
+        session = FakeSession(screen_kind=ScreenKind.NAME_ENTRY, screen_cursor=NAME_ENTRY_DONE + 1)
 
         with self.assertRaisesRegex(RuntimeError, "outside"):
             leave_name_entry(session, timeout_s=1.0)
 
     def test_times_out_when_the_cursor_never_moves(self) -> None:
         class StuckEntry(FakeSession):
-            def ui(self) -> Ui:
-                return Ui(screen=Screen.NAME_ENTRY, cursor=0)
+            def screen(self) -> ScreenState:
+                return ScreenState(kind=ScreenKind.NAME_ENTRY, cursor=0)
 
         with self.assertRaises(TimeoutError):
-            leave_name_entry(
-                StuckEntry(ui_screen=Screen.NAME_ENTRY), timeout_s=0.01
-            )
+            leave_name_entry(StuckEntry(screen_kind=ScreenKind.NAME_ENTRY), timeout_s=0.01)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from .session import Action, GameplayNotActive, Scene, Screen, Session
+from .session import Action, GameplayNotActive, Scene, ScreenKind, Session
 
 TAP_SECONDS = 0.15
 """How long a menu key is held, inside the window docs/game-ui.md measured.
@@ -181,11 +181,11 @@ def _walk_to_continue(session: Session, *, timeout_s: float) -> None:
     """
     deadline = time.monotonic() + timeout_s
     while True:
-        ui = session.ui()
-        if ui.screen is Screen.NAME_ENTRY:
+        state = session.screen()
+        if state.kind is ScreenKind.NAME_ENTRY:
             raise _not_an_ending()
-        if ui.screen is Screen.MENU:
-            if ui.cursor == MENU_CONTINUE:
+        if state.kind is ScreenKind.MENU:
+            if state.cursor == MENU_CONTINUE:
                 _press(session, Action.SHOOT)  # starts the next run on the spot
                 return
             if time.monotonic() >= deadline:
@@ -220,17 +220,19 @@ def leave_name_entry(session: Session, *, timeout_s: float) -> None:
     deadline = time.monotonic() + timeout_s
     cells = (NAME_ENTRY_LAST_ROW + 1) * NAME_ENTRY_COLUMNS
     while True:
-        ui = session.ui()
-        if ui.screen is not Screen.NAME_ENTRY:
+        state = session.screen()
+        if state.kind is not ScreenKind.NAME_ENTRY:
             return  # already left, by us or by whoever was here first
-        if not 0 <= ui.cursor < cells:
-            raise RuntimeError(f"the name entry reported cell {ui.cursor}, outside 0..{cells - 1}")
-        if ui.cursor == NAME_ENTRY_DONE:
+        if not 0 <= state.cursor < cells:
+            raise RuntimeError(
+                f"the name entry reported cell {state.cursor}, outside 0..{cells - 1}"
+            )
+        if state.cursor == NAME_ENTRY_DONE:
             break
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"the name entry did not reach 終 within {timeout_s:g} s "
-                f"(the cursor is at cell {ui.cursor})"
+                f"(the cursor is at cell {state.cursor})"
             )
         _select_name_cell(session, NAME_ENTRY_DONE)
 
@@ -247,12 +249,12 @@ def leave_name_entry(session: Session, *, timeout_s: float) -> None:
     # is what handed the caller a game that was still on the grid.
     deadline = time.monotonic() + timeout_s
     while True:
-        ui = session.ui()
-        if ui.screen is Screen.MENU:
+        state = session.screen()
+        if state.kind is ScreenKind.MENU:
             return
         if time.monotonic() >= deadline:
             raise TimeoutError(f"the name entry did not close within {timeout_s:g} s")
-        if ui.screen is Screen.NAME_ENTRY:
+        if state.kind is ScreenKind.NAME_ENTRY:
             _press(session, Action.SHOOT)  # the confirm did not take; try again
         else:
             time.sleep(POLL_SECONDS)  # between screens: wait for the game to settle
@@ -271,7 +273,7 @@ def _select_name_cell(session: Session, target: int) -> None:
     the cursor, or the readback is not the requested cell, continuing would put
     input into a screen whose state the sequence has not established.
     """
-    cursor = session.set_ui_cursor(target)
+    cursor = session.set_screen_cursor(target)
     if cursor != target:
         raise AssertionError(
             f"the name entry cursor write reported cell {cursor}, expected {target}"
@@ -284,7 +286,7 @@ def _select_menu_entry(session: Session, target: int) -> None:
     Direction-key fallback is deliberately disabled for the same reason as on the
     name entry: confirmation is only safe after the requested cursor was read back.
     """
-    cursor = session.set_ui_cursor(target)
+    cursor = session.set_screen_cursor(target)
     if cursor != target:
         raise AssertionError(
             f"the ending menu cursor write reported entry {cursor}, expected {target}"

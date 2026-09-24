@@ -505,39 +505,46 @@ typedef enum th10_state {
  */
 th10_state th10_read_state(th10_session *session);
 
-/** @brief Why th10_read_ui() returned what it did. */
-typedef enum th10_ui_result_tag {
-    TH10_UI_SUCCESS = 0, /**< the object was read; see value.ui */
-    TH10_UI_INVALID_SESSION, /**< the session is NULL or already closed */
-    TH10_UI_READ_FAILED /**< the game's UI object could not be read; see value.read_failed */
-} th10_ui_result_tag;
+/** @brief Why th10_read_screen() returned what it did. */
+typedef enum th10_screen_result_tag {
+    TH10_SCREEN_SUCCESS = 0, /**< the object was read; see value.state */
+    TH10_SCREEN_INVALID_SESSION, /**< the session is NULL or already closed */
+    TH10_SCREEN_READ_FAILED /**< the screen's object could not be read; see value.read_failed */
+} th10_screen_result_tag;
 
-/** @brief Which screen the game is driving, as it records it itself. */
-typedef enum th10_ui_screen {
-    TH10_UI_SCREEN_UNKNOWN = 0, /**< the id is none of the ones below */
-    TH10_UI_SCREEN_STAGE, /**< a stage is the active object: playing and over alike */
-    TH10_UI_SCREEN_MENU, /**< a menu is up; measured on the ending's menu */
-    TH10_UI_SCREEN_NAME_ENTRY /**< the Score Ranking name entry is waiting for a name */
-} th10_ui_screen;
+/** @brief Which screen the game is driving, as it records it itself.
+ *
+ * This is a different question from th10_read_scene(): a scene is the coarse
+ * family a screen belongs to (a menu, a stage), while a kind names the page
+ * itself. One family holds several kinds, and the kinds below are only the ones
+ * this binding has measured.
+ */
+typedef enum th10_screen_kind {
+    TH10_SCREEN_KIND_UNKNOWN = 0, /**< the game's id maps to none of the kinds below */
+    TH10_SCREEN_KIND_STAGE, /**< a stage is the active object: playing and over alike */
+    TH10_SCREEN_KIND_MENU, /**< a menu is up; measured on the ending's menu */
+    TH10_SCREEN_KIND_NAME_ENTRY /**< the Score Ranking name entry is waiting for a name */
+} th10_screen_kind;
 
 /** @brief The screen the game is driving, with the cursor that screen keeps. */
-typedef struct th10_ui {
-    th10_ui_screen screen; /**< one of TH10_UI_SCREEN_*, or UNKNOWN for an unlisted id */
+typedef struct th10_screen_state {
+    th10_screen_kind kind; /**< one of TH10_SCREEN_KIND_*, or UNKNOWN when the id maps
+                            *   to no listed kind */
     int32_t cursor; /**< the highlighted entry: the menu's (0..2) on
-                     *   TH10_UI_SCREEN_MENU, the name entry's grid cell (0..90) on
-                     *   TH10_UI_SCREEN_NAME_ENTRY. A stage keeps neither, so this
+                     *   TH10_SCREEN_KIND_MENU, the name entry's grid cell (0..90) on
+                     *   TH10_SCREEN_KIND_NAME_ENTRY. A stage keeps neither, so this
                      *   is then whatever the screen last left behind and means
                      *   nothing. */
-} th10_ui;
+} th10_screen_state;
 
-/** @brief The outcome of th10_read_ui(). */
-typedef struct th10_ui_result {
-    th10_ui_result_tag tag;
+/** @brief The outcome of th10_read_screen(). */
+typedef struct th10_screen_result {
+    th10_screen_result_tag tag;
     union {
-        th10_ui ui; /**< the screen and its cursor; valid on success */
+        th10_screen_state state; /**< the screen and its cursor; valid on success */
         th10_read_failure read_failed; /**< the read that failed */
     } value;
-} th10_ui_result;
+} th10_screen_result;
 
 /**
  * @brief Reads which screen the game is driving, and that screen's cursor.
@@ -562,16 +569,16 @@ typedef struct th10_ui_result {
  * ending has to ask this one first.
  *
  * @param session The session from th10_open().
- * @return TH10_UI_SUCCESS with the screen and its cursor in value.ui, or the
- *         reason the object could not be read.
+ * @return TH10_SCREEN_SUCCESS with the screen and its cursor in value.state, or
+ *         the reason the object could not be read.
  *
- * @note TH10_UI_SCREEN_UNKNOWN is a normal answer, not a failure: it means the
+ * @note TH10_SCREEN_KIND_UNKNOWN is a normal answer, not a failure: it means the
  *       game is on a screen this binding has not measured. A caller must not
  *       treat it as "a stage".
  */
-th10_ui_result th10_read_ui(th10_session *session);
+th10_screen_result th10_read_screen(th10_session *session);
 
-/** @brief Why th10_write_ui_cursor() returned what it did. */
+/** @brief Why th10_write_screen_cursor() returned what it did. */
 typedef enum th10_write_result_tag {
     TH10_WRITE_SUCCESS = 0, /**< the cursor was written and read back; see value.cursor */
     TH10_WRITE_INVALID_SESSION, /**< the session is NULL or already closed */
@@ -581,7 +588,7 @@ typedef enum th10_write_result_tag {
     TH10_WRITE_FAILED /**< the cursor could not be written; see value.write_failed */
 } th10_write_result_tag;
 
-/** @brief The outcome of th10_write_ui_cursor(). */
+/** @brief The outcome of th10_write_screen_cursor(). */
 typedef struct th10_write_result {
     th10_write_result_tag tag;
     union {
@@ -598,7 +605,7 @@ typedef struct th10_write_result {
 /**
  * @brief Moves the cursor of the screen the game is driving, without pressing a key.
  *
- * This is the write side of th10_read_ui(), and it exists for the same reason the
+ * This is the write side of th10_read_screen(), and it exists for the same reason the
  * read does: a screen's cursor is state the game keeps, and every screen is left
  * by putting that cursor somewhere and confirming. Reaching a cell by pressing a
  * direction is a loop - one press, one read, repeat - where the same thing can be
@@ -616,8 +623,8 @@ typedef struct th10_write_result {
  *
  * @param session The session from th10_open().
  * @param entry The cursor to select: the menu's entry (0..2, `Continue` first) on
- *              TH10_UI_SCREEN_MENU, the grid cell (0..90, `終` last) on
- *              TH10_UI_SCREEN_NAME_ENTRY.
+ *              TH10_SCREEN_KIND_MENU, the grid cell (0..90, `終` last) on
+ *              TH10_SCREEN_KIND_NAME_ENTRY.
  * @return TH10_WRITE_SUCCESS with the cursor the game reports, or the reason it
  *         could not be moved.
  *
@@ -625,7 +632,7 @@ typedef struct th10_write_result {
  *       press would have put it. A caller that wants the screen gone sends its
  *       confirm afterwards.
  */
-th10_write_result th10_write_ui_cursor(th10_session *session, int32_t entry);
+th10_write_result th10_write_screen_cursor(th10_session *session, int32_t entry);
 
 /** @brief Why th10_read_stage_frames() returned what it did. */
 typedef enum th10_frames_result_tag {

@@ -45,8 +45,8 @@ again in the sources:
   and in the public header.
 - A plain game over and the ranking's name entry look alike on screen, so the
   episode lifecycle asks the game which screen it is driving instead of guessing:
-  `Session.ui()` names it and hands back that screen's cursor. That cursor is also
-  writable (`Session.set_ui_cursor()`), which is what turns leaving the name entry
+  `Session.screen()` names it and hands back that screen's cursor. That cursor is also
+  writable (`Session.set_screen_cursor()`), which is what turns leaving the name entry
   from eighteen key presses into one step and a confirm.
 - The high score is what the game tracks in a flag of its own, and reading that flag
   as "a name is due" is exactly what walked a restart into the name entry: the

@@ -84,7 +84,7 @@ th10_open_result th10_open(void) {
     }
 
     /* The write access is for one field and one field only: a screen's cursor,
-     * which th10_write_ui_cursor() moves so that leaving an ending does not mean
+     * which th10_write_screen_cursor() moves so that leaving an ending does not mean
      * driving a highlight across a 91-cell grid one key press at a time. Nothing
      * else in this library writes to the game. */
     session->process =

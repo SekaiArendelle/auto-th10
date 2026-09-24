@@ -79,7 +79,7 @@ Three reads, and the rule is to use the cheapest one that answers the question:
 | Question | Read | Cost |
 | --- | --- | --- |
 | A stage at all, or the menus? | `th10_read_scene()` / `Session.scene()` | one word, nothing to wait for |
-| Which screen is it, and where is its cursor? | `th10_read_ui()` / `Session.ui()` | a pointer chase and a word |
+| Which screen is it, and where is its cursor? | `th10_read_screen()` / `Session.screen()` | a pointer chase and a word |
 | Is there a run, and is it over? | `th10_read_snapshot()` | one pass over the game's live objects |
 | Still running, or frozen? | `th10_read_stage_frames()` twice | two reads, and the gap between them is yours to choose |
 
@@ -90,14 +90,14 @@ is kept for people and for one-shot diagnostics, and the Python binding does not
 offer it at all - `Session` deliberately has no `state()`, so an agent cannot
 reach for it by accident.
 
-`th10_read_ui()` is the one read that says which screen the game is driving and
+`th10_read_screen()` is the one read that says which screen the game is driving and
 where its highlight sits. It is a different kind of read from the rest: the screen
 id and the cursor live in an object the game points at from a fixed address, and
 that pointer moves as the game changes screen, so it is read on every call rather
 than kept. Three ids have been measured - a stage, a menu, the ranking's name entry -
 and anything else is reported as unknown rather than guessed at.
 
-That cursor is also the one thing this library writes. `th10_write_ui_cursor()`
+That cursor is also the one thing this library writes. `th10_write_screen_cursor()`
 moves it, which is the same change a direction key makes: the field is what the
 game's own key handling reads and writes, so nothing else about the game is touched -
 not the run, not the score, not the record. It exists because a highlight is easier
@@ -275,8 +275,8 @@ Leaving the screen is therefore two steps, highlight `終` and confirm, rather t
 eighteen presses that each have to arrive.
 
 ```powershell
-.\build\dev\th10ctl.exe ui          # TH10_UI_SCREEN_NAME_ENTRY cursor=0..90
-.\build\dev\th10ctl.exe ui 90       # put the highlight on 終; a `hold shoot` after it
+.\build\dev\th10ctl.exe screen      # TH10_SCREEN_KIND_NAME_ENTRY cursor=0..90
+.\build\dev\th10ctl.exe screen 90   # put the highlight on 終; a `hold shoot` after it
                                     # writes the record
 ```
 

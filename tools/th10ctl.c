@@ -67,7 +67,7 @@ static void print_usage(void) {
            "                            read, no waiting)\n"
            "  state                     report the screen: menu / playing / paused /\n"
            "                            game over\n"
-           "  ui [cursor]               report the screen the game is driving and its\n"
+           "  screen [cursor]           report the screen the game is driving and its\n"
            "                            cursor (ending menu vs. the name entry behind\n"
            "                            it); with a cursor, move that cursor instead\n"
            "  frames                    report the stage frame counter: it advances while\n"
@@ -735,28 +735,28 @@ static bool command_scene(void) {
 }
 
 /* parse_long() is defined with the other argument helpers further down; the one
- * command that parses its number this early is `ui`. */
+ * command that parses its number this early is `screen`. */
 static bool parse_long(const char *text, long minimum, long maximum, long *out);
 
 /* Reports why a cursor could not be moved, the way the other commands report a
  * failure: the tag that came back, and the Win32 detail when there is one. */
 static bool report_write_failure(th10_write_result result) {
     if (g_json) {
-        fputs("{\"error\":\"ui\"}\n", stderr);
+        fputs("{\"error\":\"screen\"}\n", stderr);
         return false;
     }
     switch (result.tag) {
     case TH10_WRITE_UNSUPPORTED_SCREEN:
-        fputs("ui failed: the screen the game is driving keeps no cursor\n", stderr);
+        fputs("screen failed: the screen the game is driving keeps no cursor\n", stderr);
         break;
     case TH10_WRITE_INVALID_ARGUMENT:
-        fprintf(stderr, "ui failed: entry %d is outside the cursor's range 0..%d\n",
+        fprintf(stderr, "screen failed: entry %d is outside the cursor's range 0..%d\n",
                 (int)result.value.invalid_argument.entry,
                 (int)result.value.invalid_argument.count - 1);
         break;
     case TH10_WRITE_READ_FAILED:
         fprintf(stderr,
-                "ui failed: ReadProcessMemory at 0x%llx requested %zu bytes, read %zu "
+                "screen failed: ReadProcessMemory at 0x%llx requested %zu bytes, read %zu "
                 "(Win32 error %lu)\n",
                 (unsigned long long)result.value.read_failed.address,
                 result.value.read_failed.requested_size, result.value.read_failed.bytes_read,
@@ -764,14 +764,14 @@ static bool report_write_failure(th10_write_result result) {
         break;
     case TH10_WRITE_FAILED:
         fprintf(stderr,
-                "ui failed: WriteProcessMemory at 0x%llx requested %zu bytes, wrote %zu "
+                "screen failed: WriteProcessMemory at 0x%llx requested %zu bytes, wrote %zu "
                 "(Win32 error %lu)\n",
                 (unsigned long long)result.value.write_failed.address,
                 result.value.write_failed.requested_size, result.value.write_failed.bytes_written,
                 (unsigned long)result.value.write_failed.win32_error);
         break;
     default:
-        fputs("ui failed: invalid session or result\n", stderr);
+        fputs("screen failed: invalid session or result\n", stderr);
         break;
     }
     return false;
@@ -782,17 +782,17 @@ static bool report_write_failure(th10_write_result result) {
  * the only one that says where either screen's highlight sits.
  *
  * Given a cursor it moves that cursor instead of reporting it, which is the write
- * side of the same field: `ui 90` highlights 終 on the name entry, and one `hold
- * shoot` after it writes the record - the eighteen presses the grid would
+ * side of the same field: `screen 90` highlights 終 on the name entry, and one
+ * `hold shoot` after it writes the record - the eighteen presses the grid would
  * otherwise cost are not needed, and neither is the foreground. */
-static bool command_ui(const char *cursor_text) {
+static bool command_screen(const char *cursor_text) {
     static const char *names[] = {
-        "TH10_UI_SCREEN_UNKNOWN",
-        "TH10_UI_SCREEN_STAGE",
-        "TH10_UI_SCREEN_MENU",
-        "TH10_UI_SCREEN_NAME_ENTRY",
+        "TH10_SCREEN_KIND_UNKNOWN",
+        "TH10_SCREEN_KIND_STAGE",
+        "TH10_SCREEN_KIND_MENU",
+        "TH10_SCREEN_KIND_NAME_ENTRY",
     };
-    th10_ui_result result;
+    th10_screen_result result;
     const char *screen;
 
     if (!attach_session(ATTACH_NORMAL)) {
@@ -803,36 +803,36 @@ static bool command_ui(const char *cursor_text) {
         long entry = 0;
 
         if (!parse_long(cursor_text, 0, 0x7FFFFFFF, &entry)) {
-            fprintf(stderr, "ui: '%s' is not a cursor position\n", cursor_text);
+            fprintf(stderr, "screen: '%s' is not a cursor position\n", cursor_text);
             return false;
         }
-        written = th10_write_ui_cursor(g_session, (int32_t)entry);
+        written = th10_write_screen_cursor(g_session, (int32_t)entry);
         if (written.tag != TH10_WRITE_SUCCESS) {
             return report_write_failure(written);
         }
     }
-    result = th10_read_ui(g_session);
-    if (result.tag != TH10_UI_SUCCESS) {
+    result = th10_read_screen(g_session);
+    if (result.tag != TH10_SCREEN_SUCCESS) {
         if (g_json) {
-            fputs("{\"error\":\"ui\"}\n", stderr);
-        } else if (result.tag == TH10_UI_READ_FAILED) {
+            fputs("{\"error\":\"screen\"}\n", stderr);
+        } else if (result.tag == TH10_SCREEN_READ_FAILED) {
             fprintf(stderr,
-                    "ui failed: ReadProcessMemory at 0x%llx requested %zu bytes, read %zu "
+                    "screen failed: ReadProcessMemory at 0x%llx requested %zu bytes, read %zu "
                     "(Win32 error %lu)\n",
                     (unsigned long long)result.value.read_failed.address,
                     result.value.read_failed.requested_size,
                     result.value.read_failed.bytes_read,
                     (unsigned long)result.value.read_failed.win32_error);
         } else {
-            fputs("ui failed: invalid session or result\n", stderr);
+            fputs("screen failed: invalid session or result\n", stderr);
         }
         return false;
     }
-    screen = names[(unsigned int)result.value.ui.screen];
+    screen = names[(unsigned int)result.value.state.kind];
     if (g_json) {
-        printf("{\"screen\":\"%s\",\"cursor\":%d}\n", screen, (int)result.value.ui.cursor);
+        printf("{\"screen\":\"%s\",\"cursor\":%d}\n", screen, (int)result.value.state.cursor);
     } else {
-        printf("ui: %s cursor=%d\n", screen, (int)result.value.ui.cursor);
+        printf("screen: %s cursor=%d\n", screen, (int)result.value.state.cursor);
     }
     return true;
 }
@@ -1197,8 +1197,8 @@ int main(int argc, char **argv) {
         status = command_scene() ? 0 : 1;
     } else if (strcmp(command, "state") == 0) {
         status = command_state() ? 0 : 1;
-    } else if (strcmp(command, "ui") == 0) {
-        status = command_ui(index < argc ? argv[index] : NULL) ? 0 : 1;
+    } else if (strcmp(command, "screen") == 0) {
+        status = command_screen(index < argc ? argv[index] : NULL) ? 0 : 1;
     } else if (strcmp(command, "frames") == 0) {
         status = command_frames() ? 0 : 1;
     } else if (strcmp(command, "shot") == 0) {

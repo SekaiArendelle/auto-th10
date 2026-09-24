@@ -15,11 +15,11 @@ from .session import (
     GameNotFound,
     GameplayNotActive,
     Scene,
-    Screen,
+    ScreenKind,
     SessionClosedError,
     Session,
 )
-from .types import EnemyBullet, EnemyLaser, Point, Rect, Snapshot, Ui
+from .types import EnemyBullet, EnemyLaser, Point, Rect, ScreenState, Snapshot
 
 __all__ = [
     "Action",
@@ -36,13 +36,13 @@ __all__ = [
     "Point",
     "Rect",
     "Scene",
-    "Screen",
+    "ScreenKind",
+    "ScreenState",
     "Session",
     "SessionClosedError",
     "Settings",
     "Snapshot",
     "TRAIN_PRESET",
     "Th10Env",
-    "Ui",
     "score_delta",
 ]

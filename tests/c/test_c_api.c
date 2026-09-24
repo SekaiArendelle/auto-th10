@@ -9,15 +9,15 @@ int main(void) {
     th10_input_result input_result = th10_set_input(NULL, TH10_ACTION_NONE);
     th10_close_result close_result = th10_close(NULL);
     th10_frames_result frames_result = th10_read_stage_frames(NULL);
-    th10_ui_result ui_result = th10_read_ui(NULL);
-    th10_write_result write_result = th10_write_ui_cursor(NULL, 0);
+    th10_screen_result screen_result = th10_read_screen(NULL);
+    th10_write_result write_result = th10_write_screen_cursor(NULL, 0);
     assert(snapshot_result.tag == TH10_SNAPSHOT_INVALID_ARGUMENT);
     assert(input_result.tag == TH10_INPUT_INVALID_SESSION);
     assert(close_result.tag == TH10_CLOSE_INVALID_SESSION);
     assert(th10_focus(NULL).tag == TH10_FOCUS_INVALID_SESSION);
     assert(th10_capture(NULL, L"shot.bmp").tag == TH10_CAPTURE_INVALID_ARGUMENT);
     assert(frames_result.tag == TH10_FRAMES_INVALID_SESSION);
-    assert(ui_result.tag == TH10_UI_INVALID_SESSION);
+    assert(screen_result.tag == TH10_SCREEN_INVALID_SESSION);
     assert(write_result.tag == TH10_WRITE_INVALID_SESSION);
     th10_snapshot_init(&snapshot);
     assert(snapshot.enemies.data == NULL);

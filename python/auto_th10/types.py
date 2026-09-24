@@ -30,17 +30,17 @@ class EnemyLaser(Rect):
 
 
 @dataclass(frozen=True, slots=True)
-class Ui:
+class ScreenState:
     """The screen the game is driving, and the cursor that screen keeps.
 
-    `screen` is the raw name the C side reports (see `session.Screen`), and
+    `kind` is the raw name the C side reports (see `session.ScreenKind`), and
     `cursor` means whatever that screen's cursor is: the menu entry or the name
     entry's grid cell. A stage keeps neither, so the number is then meaningless
-    rather than absent - read `screen` first, which is what makes this the one
+    rather than absent - read `kind` first, which is what makes this the one
     observation that tells an ending's menu from the name entry behind it.
     """
 
-    screen: str
+    kind: str
     cursor: int
 
 

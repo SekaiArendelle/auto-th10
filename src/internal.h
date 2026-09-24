@@ -26,8 +26,8 @@ bool th10_read_memory(th10_session *session, uintptr_t address, void *output, si
 
 /* The same for a write, and it stays internal on purpose: nothing public hands a
  * caller an address to write to. The one caller is the cursor the game's own
- * screens keep, which is a UI field rather than a game value - see
- * th10_write_ui_cursor(). */
+ * screens keep, which is the screen's own field rather than a game value - see
+ * th10_write_screen_cursor(). */
 bool th10_write_memory(th10_session *session, uintptr_t address, const void *input, size_t size,
                        th10_write_failure *failure);
 
@@ -51,7 +51,7 @@ static const uintptr_t TH10_SCENE_ADDRESS = 0x00491FB8u;        /* 0x4 title and
  * screen id moved 12 -> 8 when the name entry was confirmed, the menu entry
  * 2 -> 0 on one `down` (its cursor opens on Quit, the last entry), and the grid
  * cell +1 on one `right`, wrapping from cell 90 back to 78 on the last row. */
-static const uintptr_t TH10_UI_OBJECT_ADDRESS = 0x00477830u;
+static const uintptr_t TH10_SCREEN_OBJECT_ADDRESS = 0x00477830u;
 static const uintptr_t TH10_LIVES_ADDRESS = 0x00474C70u;        /* 2, 1, 0 alive, then -1 once over */
 static const uintptr_t TH10_STAGE_FRAMES_ADDRESS = 0x00474C88u; /* advances while playing, frozen
                                                                  * while paused */
