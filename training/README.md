@@ -180,7 +180,16 @@ pixi run python -m training.collect --out runs/first.jsonl
 - `training/dataset.py` - the versioned JSON representation of a transition,
   including every field in both memory-backed observations.
 - `training/collect.py` - writes those transitions as JSONL rows under `runs/`.
-- `training/train.py` - a stub: nothing here trains a model yet.
+- `training/rl/features.py` - feature schema version 1: a bounded fixed-length
+  tuple made from the memory snapshot. It keeps configurable nearest-entity
+  prefixes and pads them with explicit masks. A checkpoint records the schema
+  version and entity limits that define the tuple's exact layout.
+- `training/rl/actions.py` - action schema version 1: 17 valid movement choices
+  and a binary bomb choice. Shooting stays outside the learned action for now so
+  combat can hold it and dialogue can pulse it without teaching the model that
+  game-specific convention.
+- `training/train.py` - a stub: the observation and action protocols now exist,
+  but no model is trained yet.
 
 Open: tuning against a real stage - the entry points run, but nothing here has been
 tuned with the game in front of it, and `BULLET_LEAD` and the laser box are still
