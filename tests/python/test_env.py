@@ -29,14 +29,8 @@ class NoWaiting:
             self.addCleanup(patcher.stop)
 
 
-class StartableTests(unittest.TestCase):
-    """What the constructor accepts: the cheap half of the question.
-
-    The constructor reads the screen family and nothing else - one read of one
-    word - so it refuses a menu or an unknown family and accepts a stage. Whether
-    that stage has a run behind it, and whether the run is frozen, is reset()'s
-    business; ResetTests covers that.
-    """
+class ConstructionTests(unittest.TestCase):
+    """Construction stores dependencies but leaves all game inspection to reset()."""
 
     def test_a_playing_stage_is_accepted(self) -> None:
         session = FakeSession()
@@ -45,25 +39,17 @@ class StartableTests(unittest.TestCase):
 
         self.assertIs(env.session, session)
 
-    def test_a_menu_is_refused(self) -> None:
+    def test_a_menu_is_not_inspected_until_reset(self) -> None:
+        env = Th10Env(session=FakeSession(scenes=(Scene.MENU,)))
+
         with self.assertRaises(NotInStage):
-            Th10Env(session=FakeSession(scenes=(Scene.MENU,)))
+            env.reset()
 
-    def test_an_unknown_family_is_refused(self) -> None:
+    def test_an_unknown_family_is_not_inspected_until_reset(self) -> None:
+        env = Th10Env(session=FakeSession(scenes=(Scene.UNKNOWN,)))
+
         with self.assertRaises(NotInStage):
-            Th10Env(session=FakeSession(scenes=(Scene.UNKNOWN,)))
-
-    def test_a_frozen_stage_gets_past_the_constructor(self) -> None:
-        # The family is all it asks, so a paused stage is accepted here and refused
-        # by reset(), which is where keys would start arriving.
-        env = Th10Env(session=FakeSession(frame_step=0))
-
-        self.assertIsInstance(env, Th10Env)
-
-    def test_the_check_can_be_skipped_when_a_test_drives_the_environment(self) -> None:
-        env = Th10Env(session=FakeSession(scenes=(Scene.MENU,)), require_stage=False)
-
-        self.assertIsInstance(env, Th10Env)
+            env.reset()
 
 
 class SettingsTests(unittest.TestCase):
@@ -79,15 +65,13 @@ class SettingsTests(unittest.TestCase):
 
 
 class ResetTests(NoWaiting, unittest.TestCase):
-    """reset() drives the lifecycle, so the constructor check is kept out of the way."""
 
     def test_reset_focuses_the_window_and_returns_the_first_observation(self) -> None:
         session = FakeSession(snapshots=(make_snapshot(score=100),))
 
-        observation, info = Th10Env(session=session, require_stage=False).reset()
+        observation = Th10Env(session=session).reset()
 
         self.assertEqual(observation.snapshot.score, 100)
-        self.assertEqual(info, {})
         self.assertEqual(session.focus_calls, 1)
 
     def test_reset_clears_an_ending_that_was_already_on_screen(self) -> None:
@@ -95,7 +79,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
             snapshots=(make_snapshot(lives=-1, game_over=True), make_snapshot(score=3)),
         )
 
-        observation, _ = Th10Env(settings=EVAL_PRESET, session=session, require_stage=False).reset()
+        observation = Th10Env(settings=EVAL_PRESET, session=session).reset()
 
         self.assertEqual(observation.snapshot.score, 3)
         self.assertEqual(session.inputs[-2:], [Action.SHOOT, Action.NONE])
@@ -104,7 +88,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
         session = FakeSession(
             snapshots=(make_snapshot(), make_snapshot(lives=-1, game_over=True)),
         )
-        env = Th10Env(settings=EVAL_PRESET, session=session, require_stage=False)
+        env = Th10Env(settings=EVAL_PRESET, session=session)
         env.reset()
         env.step(Action.RIGHT | Action.SHOOT)
 
@@ -121,11 +105,11 @@ class ResetTests(NoWaiting, unittest.TestCase):
                 make_snapshot(score=8),
             ),
         )
-        env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
+        env = Th10Env(settings=TRAIN_PRESET, session=session)
         env.reset()
         env.step(Action.NONE)
 
-        observation, _ = env.reset()
+        observation = env.reset()
 
         self.assertEqual(observation.snapshot.score, 8)
 
@@ -140,7 +124,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
         )
 
         with self.assertRaisesRegex(NotInStage, "waiting for a name"):
-            Th10Env(settings=EVAL_PRESET, session=session, require_stage=False).reset()
+            Th10Env(settings=EVAL_PRESET, session=session).reset()
 
         self.assertEqual(session.inputs, [])
 
@@ -154,9 +138,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
             screen_cursor=0,
         )
 
-        observation, _ = Th10Env(
-            settings=TRAIN_PRESET, session=session, require_stage=False
-        ).reset()
+        observation = Th10Env(settings=TRAIN_PRESET, session=session).reset()
 
         self.assertEqual(observation.snapshot.score, 8)
         self.assertIs(session.screen_kind, ScreenKind.STAGE)
@@ -183,11 +165,11 @@ class ResetTests(NoWaiting, unittest.TestCase):
                 make_snapshot(score=8),
             ),
         )
-        env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
+        env = Th10Env(settings=TRAIN_PRESET, session=session)
         env.reset()
         env.step(Action.RIGHT | Action.SHOOT)
 
-        observation, _ = env.reset()
+        observation = env.reset()
 
         self.assertEqual(observation.snapshot.score, 8)
         self.assertIs(session.screen_kind, ScreenKind.STAGE)
@@ -211,7 +193,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
                 raise RuntimeError("unexpected snapshot failure")
 
         with self.assertRaisesRegex(RuntimeError, "unexpected snapshot failure"):
-            Th10Env(session=BrokenSession(), require_stage=False).reset()
+            Th10Env(session=BrokenSession()).reset()
 
     def test_reset_propagates_a_closed_session(self) -> None:
         # SessionClosedError derives from RuntimeError just as GameplayNotActive
@@ -222,7 +204,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
                 raise SessionClosedError("session is closed")
 
         with self.assertRaises(SessionClosedError):
-            Th10Env(session=ClosedSession(), require_stage=False).reset()
+            Th10Env(session=ClosedSession()).reset()
 
     def test_reset_refuses_a_restart_that_lands_at_the_title(self) -> None:
         # The restart sequence reports a game that ended up back at the title
@@ -232,7 +214,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
             snapshots=(make_snapshot(), make_snapshot(lives=-1, game_over=True)),
             scenes=(Scene.STAGE, Scene.STAGE, Scene.MENU),
         )
-        env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
+        env = Th10Env(settings=TRAIN_PRESET, session=session)
         env.reset()
         env.step(Action.NONE)
 
@@ -251,7 +233,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
         )
 
         with self.assertRaisesRegex(OSError, "screen could not be read"):
-            Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False).reset()
+            Th10Env(settings=TRAIN_PRESET, session=session).reset()
 
         self.assertEqual(session.inputs, [])
 
@@ -260,7 +242,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
             snapshots=(make_snapshot(), make_snapshot(lives=-1, game_over=True)),
             screen_error=OSError("the game's screen could not be read"),
         )
-        env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
+        env = Th10Env(settings=TRAIN_PRESET, session=session)
         env.reset()
         env.step(Action.RIGHT | Action.SHOOT)
 
@@ -283,20 +265,67 @@ class StepTests(unittest.TestCase):
 
         self.assertEqual(session.inputs, [])
 
-    def test_step_holds_the_action_and_returns_the_score_delta(self) -> None:
+    def test_a_failed_step_requires_another_reset(self) -> None:
+        session = FakeSession(freeze_after=2)
+        env = Th10Env(session=session, frame_timeout_s=0.02)
+        env.reset()
+
+        with self.assertRaises(NotInStage):
+            env.step(Action.NONE)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_a_rejected_input_releases_the_previous_action(self) -> None:
+        class RejectingSession(FakeSession):
+            def set_input(self, action: object) -> None:
+                if int(action) & (1 << 30):
+                    raise ValueError("unsupported input bit")
+                super().set_input(action)
+
+        session = RejectingSession(snapshots=(make_snapshot(), make_snapshot()))
+        env = Th10Env(session=session)
+        env.reset()
+        env.step(Action.SHOOT)
+
+        with self.assertRaisesRegex(ValueError, "unsupported input bit"):
+            env.step(1 << 30)
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_a_cleanup_failure_does_not_hide_the_input_error(self) -> None:
+        class BrokenInputSession(FakeSession):
+            def set_input(self, action: object) -> None:
+                if int(action) == int(Action.NONE):
+                    raise OSError("release failed")
+                if int(action) & (1 << 30):
+                    raise ValueError("unsupported input bit")
+                super().set_input(action)
+
+        env = Th10Env(session=BrokenInputSession())
+        env.reset()
+        env.step(Action.SHOOT)
+
+        with self.assertRaisesRegex(ValueError, "unsupported input bit"):
+            env.step(1 << 30)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_step_holds_the_action_and_returns_a_transition(self) -> None:
         session = FakeSession(
             snapshots=(make_snapshot(score=10), make_snapshot(score=25)),
         )
         env = Th10Env(session=session)
         env.reset()
 
-        observation, reward, terminated, truncated, info = env.step(Action.SHOOT | Action.FOCUS)
+        transition = env.step(Action.SHOOT | Action.FOCUS)
 
-        self.assertEqual(observation.snapshot.score, 25)
-        self.assertEqual(reward, 15.0)
-        self.assertFalse(terminated)
-        self.assertFalse(truncated)
-        self.assertEqual(info["steps"], 1)
+        self.assertEqual(transition.observation.snapshot.score, 10)
+        self.assertEqual(transition.next_observation.snapshot.score, 25)
+        self.assertEqual(transition.action, Action.SHOOT | Action.FOCUS)
+        self.assertEqual(transition.frames, 1)
+        self.assertFalse(transition.terminated)
         self.assertEqual(session.inputs, [Action.SHOOT | Action.FOCUS])
 
     def test_step_reports_game_over_as_terminated(self) -> None:
@@ -306,10 +335,28 @@ class StepTests(unittest.TestCase):
         env = Th10Env(session=session)
         env.reset()
 
-        _, _, terminated, truncated, _ = env.step(Action.NONE)
+        transition = env.step(Action.NONE)
 
-        self.assertTrue(terminated)
-        self.assertFalse(truncated)
+        self.assertTrue(transition.terminated)
+        self.assertEqual(session.inputs[-1], Action.NONE)
+
+    def test_a_terminal_release_failure_still_ends_the_episode(self) -> None:
+        class BrokenReleaseSession(FakeSession):
+            def set_input(self, action: object) -> None:
+                if int(action) == int(Action.NONE):
+                    raise OSError("release failed")
+                super().set_input(action)
+
+        session = BrokenReleaseSession(
+            snapshots=(make_snapshot(), make_snapshot(game_over=True))
+        )
+        env = Th10Env(session=session)
+        env.reset()
+
+        with self.assertRaisesRegex(OSError, "release failed"):
+            env.step(Action.SHOOT)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.SHOOT)
 
     def test_step_stops_when_the_game_stops_advancing(self) -> None:
         # Two reads of the clock while it is moving get the episode started; after
@@ -332,11 +379,10 @@ class StepTests(unittest.TestCase):
         env = Th10Env(session=session)
         env.reset()
 
-        observation, reward, terminated, _, _ = env.step(Action.SHOOT | Action.RIGHT)
+        transition = env.step(Action.SHOOT | Action.RIGHT)
 
-        self.assertEqual(observation.snapshot.score, 25)
-        self.assertEqual(reward, 15.0)
-        self.assertFalse(terminated)
+        self.assertEqual(transition.next_observation.snapshot.score, 25)
+        self.assertFalse(transition.terminated)
         self.assertEqual(session.inputs, [Action.SHOOT | Action.RIGHT, Action.NONE])
         self.assertEqual(env.frames, 1)
 
@@ -377,21 +423,13 @@ class StepTests(unittest.TestCase):
         env = Th10Env(session=session, frame_timeout_s=0.02)
         env.reset()
 
-        _, _, terminated, truncated, _ = env.step(Action.NONE)
+        transition = env.step(Action.NONE)
 
-        self.assertTrue(terminated)
-        self.assertFalse(truncated)
+        self.assertTrue(transition.terminated)
+        self.assertEqual(transition.frames, 0)
 
-    def test_the_reward_can_be_shaped(self) -> None:
-        session = FakeSession(
-            snapshots=(make_snapshot(score=1), make_snapshot(score=2)),
-        )
-        env = Th10Env(session=session, reward_fn=lambda previous, current: -1.0)
-        env.reset()
-
-        _, reward, _, _, _ = env.step(Action.NONE)
-
-        self.assertEqual(reward, -1.0)
+        with self.assertRaises(NotInStage):
+            env.step(Action.NONE)
 
 
 class CloseTests(unittest.TestCase):

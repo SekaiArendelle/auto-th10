@@ -1,4 +1,4 @@
-"""Observations and actions: the agent's half of the loop.
+"""Frame-synchronized actions and transitions: the agent's half of the loop.
 
 The environment drives only what it has to. It starts from a stage the player is
 already in, and it refuses to touch the game from anywhere else - entering a
@@ -18,7 +18,6 @@ See training/README.md for how the layers above this one fit together.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -109,6 +108,30 @@ class Observation:
     snapshot: Snapshot
 
 
+@dataclass(frozen=True, slots=True)
+class Transition:
+    """One applied action and the game state on both sides of it.
+
+    `frames` is actual progress of the stage clock. It can be zero when the
+    terminal snapshot is discovered after that clock has already frozen; a
+    reward model that charges per decision can impose its own minimum.
+    """
+
+    observation: Observation
+    action: Action
+    next_observation: Observation
+    frames: int
+    terminated: bool
+
+
+class _Phase(Enum):
+    NEW = auto()
+    RUNNING = auto()
+    ENDED = auto()
+    INTERRUPTED = auto()
+    CLOSED = auto()
+
+
 class NotInStage(RuntimeError):
     """The game is not in a running stage, so injecting keys would be wrong.
 
@@ -118,22 +141,13 @@ class NotInStage(RuntimeError):
     """
 
 
-def score_delta(previous: Snapshot, current: Snapshot) -> float:
-    """The default reward: how much the score moved.
-
-    Exposed rather than private because a policy that wants a shaped reward has
-    to start from something, and this is the honest signal the game gives.
-    """
-    return float(current.score - previous.score)
-
-
 class Th10Env:
-    """A stage, an observation and an action mask.
+    """Execute actions against a stage and report the resulting transitions.
 
-    Construct it while the game is in a stage (that is checked), call reset() to
-    start an episode and step() to move one frame. The session is opened by the
-    environment unless one is passed in, which is how the tests drive it without
-    a game.
+    Construction opens the session but does not inspect or drive the game. Call
+    reset() to validate the stage and start an episode, then step() to move one
+    frame. Reward belongs to the runner or training adapter consuming the
+    transition, not to this game-driving layer.
     """
 
     poll_seconds: float = 0.001
@@ -145,22 +159,17 @@ class Th10Env:
         settings: Settings = EVAL_PRESET,
         frame_timeout_s: float = 2.0,
         transition_timeout_s: float = 10.0,
-        reward_fn: Callable[[Snapshot, Snapshot], float] = score_delta,
-        require_stage: bool = True,
         session: Session | None = None,
     ) -> None:
         self.settings = settings
         self.frame_timeout_s = frame_timeout_s
         self.transition_timeout_s = transition_timeout_s
-        self.reward_fn = reward_fn
         self.session = Session() if session is None else session
         self._snapshot: Snapshot | None = None
         self._stage_frames = 0
         self._frames = 0
         self._steps = 0
-        self._started = False
-        if require_stage:
-            self._require_startable()
+        self._phase = _Phase.NEW
 
     def require_in_stage(self) -> None:
         """Raise NotInStage unless the game is in a running stage."""
@@ -169,7 +178,7 @@ class Th10Env:
             raise self._refuse()
         self._require_not_frozen()
 
-    def reset(self) -> tuple[Observation, dict[str, object]]:
+    def reset(self) -> Observation:
         """Starts an episode, clearing or restarting whatever ended before it.
 
         An ending that is on screen before the first episode is left over from an
@@ -178,11 +187,22 @@ class Th10Env:
         different: OnDeath.STOP leaves it there, and reset() then refuses to start
         another run on top of it.
         """
+        if self._phase is _Phase.CLOSED:
+            raise RuntimeError("the environment is closed")
+        continuing = self._phase is not _Phase.NEW
+        if self._phase is _Phase.RUNNING:
+            self.session.set_input(Action.NONE)
+        if continuing:
+            self._phase = _Phase.INTERRUPTED
+        if self.session.scene() is not Scene.STAGE:
+            raise self._refuse()
         snapshot = self._look()
         if snapshot is not None and snapshot.game_over:
-            if self._started:
+            if continuing:
                 self.session.set_input(Action.NONE)
-            if self._started and self.settings.on_death is not OnDeath.RESTART:
+            if (
+                continuing and self.settings.on_death is not OnDeath.RESTART
+            ):
                 raise NotInStage("the run is over and OnDeath is STOP: restart it in the game")
             # The sequence below presses keys, and a key only reaches the game while
             # its window owns the foreground (docs/game-ui.md), so the focus is
@@ -201,10 +221,10 @@ class Th10Env:
         self._stage_frames = self.session.stage_frames()
         self._frames = 0
         self._steps = 0
-        self._started = True
-        return Observation(snapshot=snapshot), {}
+        self._phase = _Phase.RUNNING
+        return Observation(snapshot=snapshot)
 
-    def step(self, action: Action | int) -> tuple[Observation, float, bool, bool, dict[str, object]]:
+    def step(self, action: Action | int) -> Transition:
         """Holds `action`, waits for the game to advance a frame, then reads it.
 
         Waiting for the counter instead of sleeping is what keeps the loop
@@ -216,22 +236,39 @@ class Th10Env:
         it; reset() is what refuses those, and this guard is what keeps a key from
         being injected by a caller that skipped it.
         """
-        if not self._started:
-            raise NotInStage("the episode has not started: call reset() before step()")
+        if self._phase is not _Phase.RUNNING:
+            raise NotInStage("the episode is not running: call reset() before step()")
         previous = self._snapshot
-        self.session.set_input(action)
+        if previous is None:
+            raise RuntimeError("the running episode has no observation")
         try:
+            applied_action = Action(action)
+            self.session.set_input(applied_action)
             stage_frames, snapshot = self._wait_for_next_snapshot()
         except BaseException:
-            self.session.set_input(Action.NONE)
+            self._phase = _Phase.INTERRUPTED
+            try:
+                self.session.set_input(Action.NONE)
+            except BaseException:
+                # The action or read failure is the operation that failed; a
+                # second input failure must not replace it while unwinding.
+                pass
             raise
-        self._advance_frame_count(stage_frames)
+        frames = self._advance_frame_count(stage_frames)
         self._snapshot = snapshot
         self._steps += 1
-        reward = 0.0 if previous is None else self.reward_fn(previous, snapshot)
-        return Observation(snapshot=snapshot), reward, snapshot.game_over, False, {
-            "steps": self._steps
-        }
+        observation = Observation(snapshot=previous)
+        next_observation = Observation(snapshot=snapshot)
+        if snapshot.game_over:
+            self._phase = _Phase.ENDED
+            self.session.set_input(Action.NONE)
+        return Transition(
+            observation=observation,
+            action=applied_action,
+            next_observation=next_observation,
+            frames=frames,
+            terminated=snapshot.game_over,
+        )
 
     @property
     def frames(self) -> int:
@@ -248,7 +285,20 @@ class Th10Env:
         return self._steps
 
     def close(self) -> None:
-        self.session.close()
+        if self._phase is _Phase.CLOSED:
+            return
+        try:
+            self.stop()
+        finally:
+            self.session.close()
+            self._phase = _Phase.CLOSED
+
+    def stop(self) -> None:
+        """Release held input and require reset() before another action."""
+        if self._phase is not _Phase.RUNNING:
+            return
+        self._phase = _Phase.INTERRUPTED
+        self.session.set_input(Action.NONE)
 
     def __enter__(self) -> Th10Env:
         return self
@@ -269,18 +319,6 @@ class Th10Env:
             return self.session.snapshot()
         except GameplayNotActive:
             return None
-
-    def _require_startable(self) -> None:
-        """Raise NotInStage unless the agent could take over from where the game is.
-
-        The constructor asks the cheap half of the question - the screen family,
-        one read of one word - and leaves the rest to reset(), which is where a run
-        is actually needed. A menu is refused here; a stage that turns out to be
-        frozen, or to have no run behind it at all, is refused when the episode
-        starts, because that is when keys would start arriving.
-        """
-        if self.session.scene() is not Scene.STAGE:
-            raise self._refuse()
 
     def _require_not_frozen(self) -> None:
         """Raise NotInStage when the stage clock has stopped.
@@ -361,13 +399,17 @@ class Th10Env:
                 )
             time.sleep(self.poll_seconds)
 
-    def _advance_frame_count(self, stage_frames: int) -> None:
+    def _advance_frame_count(self, stage_frames: int) -> int:
         """Accumulate a raw stage clock that can restart between stages."""
         if stage_frames > self._stage_frames:
-            self._frames += stage_frames - self._stage_frames
+            frames = stage_frames - self._stage_frames
         elif stage_frames < self._stage_frames:
-            self._frames += max(1, stage_frames)
+            frames = max(1, stage_frames)
+        else:
+            frames = 0
+        self._frames += frames
         self._stage_frames = stage_frames
+        return frames
 
     def _leave_game_over(self) -> None:
         """Clears whatever ended the run, whatever kind of ending it was.

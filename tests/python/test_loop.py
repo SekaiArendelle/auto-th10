@@ -19,7 +19,11 @@ class RunEpisodeTests(unittest.TestCase):
         )
         steps = []
 
-        result = run_episode(env, FixedPolicy([Action.SHOOT], frames_per_action=1), on_step=steps.append)
+        result = run_episode(
+            env,
+            FixedPolicy([Action.SHOOT], frames_per_action=1),
+            on_step=steps.append,
+        )
 
         self.assertEqual(result.ending, "game_over")
         self.assertEqual(result.steps, 2)
@@ -36,6 +40,7 @@ class RunEpisodeTests(unittest.TestCase):
 
         self.assertEqual(result.ending, "step_limit")
         self.assertEqual(result.steps, 2)
+        self.assertEqual(env.session.inputs[-1], Action.NONE)
 
     def test_counts_the_frames_the_episode_covered(self) -> None:
         env = build_env(make_snapshot(), make_snapshot(), make_snapshot(lives=-1, game_over=True))
@@ -84,6 +89,45 @@ class RunEpisodeTests(unittest.TestCase):
         self.assertEqual(steps[0].observation.snapshot.score, 10)
         self.assertEqual(steps[0].next_observation.snapshot.score, 25)
         self.assertEqual(steps[0].reward, 15.0)
+
+    def test_the_runner_owns_reward_calculation(self) -> None:
+        env = build_env(make_snapshot(score=10), make_snapshot(score=25, game_over=True))
+
+        result = run_episode(env, FixedPolicy(), reward_fn=lambda transition: -1.0)
+
+        self.assertEqual(result.total_reward, -1.0)
+
+    def test_a_reward_failure_releases_the_applied_action(self) -> None:
+        env = build_env(make_snapshot(), make_snapshot(score=1))
+
+        with self.assertRaises(ZeroDivisionError):
+            run_episode(
+                env,
+                FixedPolicy(),
+                reward_fn=lambda transition: 1 / 0,
+            )
+
+        self.assertEqual(env.session.inputs[-1], Action.NONE)
+
+    def test_a_release_failure_does_not_hide_the_reward_error(self) -> None:
+        class BrokenReleaseSession(FakeSession):
+            def set_input(self, action: object) -> None:
+                if int(action) == int(Action.NONE):
+                    raise OSError("release failed")
+                super().set_input(action)
+
+        env = Th10Env(
+            session=BrokenReleaseSession(
+                snapshots=(make_snapshot(), make_snapshot(score=1))
+            )
+        )
+
+        with self.assertRaises(ZeroDivisionError):
+            run_episode(
+                env,
+                FixedPolicy(),
+                reward_fn=lambda transition: 1 / 0,
+            )
 
 
 class RunEpisodesTests(unittest.TestCase):

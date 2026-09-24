@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from auto_th10 import Action, Observation, Th10Env
+from auto_th10 import Action, Observation, Th10Env, Transition
 
 from .policy import Policy
 
@@ -45,6 +45,15 @@ class EpisodeResult:
 
 StepHook = Callable[[Step], None]
 EpisodeHook = Callable[[EpisodeResult], None]
+RewardFn = Callable[[Transition], float]
+
+
+def score_delta(transition: Transition) -> float:
+    """Reward a transition by the score gained across it."""
+    return float(
+        transition.next_observation.snapshot.score
+        - transition.observation.snapshot.score
+    )
 
 
 def run_episode(
@@ -53,6 +62,7 @@ def run_episode(
     *,
     episode: int = 0,
     max_steps: int | None = 3600,
+    reward_fn: RewardFn = score_delta,
     on_step: StepHook | None = None,
 ) -> EpisodeResult:
     """Plays one episode: reset, then step until the run ends or the cap is hit.
@@ -63,32 +73,45 @@ def run_episode(
     """
     if max_steps is not None and max_steps < 1:
         raise ValueError("max_steps must be positive")
-    observation, _ = env.reset()
+    observation = env.reset()
     first_frame = env.frames
     total_reward = 0.0
     terminated = False
     steps = 0
 
-    while max_steps is None or steps < max_steps:
-        steps += 1
-        previous_observation = observation
-        action = policy.decide(observation)
-        observation, reward, terminated, _, _ = env.step(action)
-        total_reward += reward
-        if on_step is not None:
-            on_step(
-                Step(
-                    episode=episode,
-                    index=steps - 1,
-                    observation=previous_observation,
-                    action=action,
-                    reward=reward,
-                    next_observation=observation,
-                    terminated=terminated,
+    try:
+        while max_steps is None or steps < max_steps:
+            steps += 1
+            action = policy.decide(observation)
+            transition = env.step(action)
+            observation = transition.next_observation
+            reward = reward_fn(transition)
+            terminated = transition.terminated
+            total_reward += reward
+            if on_step is not None:
+                on_step(
+                    Step(
+                        episode=episode,
+                        index=steps - 1,
+                        observation=transition.observation,
+                        action=transition.action,
+                        reward=reward,
+                        next_observation=observation,
+                        terminated=terminated,
+                    )
                 )
-            )
-        if terminated:
-            break
+            if terminated:
+                break
+    except BaseException:
+        try:
+            env.stop()
+        except BaseException:
+            # Preserve the policy, transition, reward or hook failure that made
+            # the runner unwind; the environment is already non-running.
+            pass
+        raise
+    if not terminated:
+        env.stop()
 
     return EpisodeResult(
         episode=episode,
@@ -106,6 +129,7 @@ def run_episodes(
     episodes: int,
     *,
     max_steps: int | None = 3600,
+    reward_fn: RewardFn = score_delta,
     on_step: StepHook | None = None,
     on_episode: EpisodeHook | None = None,
 ) -> list[EpisodeResult]:
@@ -119,7 +143,14 @@ def run_episodes(
         raise ValueError("episodes must be positive")
     results = []
     for episode in range(episodes):
-        result = run_episode(env, policy, episode=episode, max_steps=max_steps, on_step=on_step)
+        result = run_episode(
+            env,
+            policy,
+            episode=episode,
+            max_steps=max_steps,
+            reward_fn=reward_fn,
+            on_step=on_step,
+        )
         results.append(result)
         if on_episode is not None:
             on_episode(result)

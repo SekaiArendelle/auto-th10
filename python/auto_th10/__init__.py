@@ -7,7 +7,7 @@ from .env import (
     OnNameEntry,
     Settings,
     Th10Env,
-    score_delta,
+    Transition,
 )
 from .session import (
     Action,
@@ -42,5 +42,5 @@ __all__ = [
     "Snapshot",
     "TRAIN_PRESET",
     "Th10Env",
-    "score_delta",
+    "Transition",
 ]

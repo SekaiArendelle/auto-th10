@@ -68,11 +68,11 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         del options
         if self._observation is not None:
             self.env.session.set_input(Action.NONE)
-        observation, info = self.env.reset()
+        observation = self.env.reset()
         self._observation = observation
         self._decisions = 0
         self._episode_done = False
-        return self._encode(observation), self._info(info, delta_frames=0)
+        return self._encode(observation), self._info({}, delta_frames=0)
 
     def step(
         self, action: np.ndarray
@@ -91,45 +91,40 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         total = RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0.0)
         delta_frames = 0
         terminated = False
-        core_truncated = False
-        info: dict[str, object] = {}
         for repeat in range(self.action_repeat):
-            previous = self._observation
-            previous_frames = self.env.frames
             applied_action = (
                 native_action if repeat == 0 else native_action & ~Action.BOMB
             )
-            observation, _, terminated, core_truncated, info = self.env.step(
-                applied_action
-            )
-            frames = max(1, self.env.frames - previous_frames)
-            delta_frames += frames
+            transition = self.env.step(applied_action)
+            delta_frames += transition.frames
+            reward_frames = max(1, transition.frames)
             total = _add_rewards(
                 total,
                 memory_reward(
-                    previous.snapshot,
-                    observation.snapshot,
-                    applied_action,
-                    frames=frames,
+                    transition.observation.snapshot,
+                    transition.next_observation.snapshot,
+                    transition.action,
+                    frames=reward_frames,
                     spec=self.reward_spec,
                 ),
             )
-            self._observation = observation
-            if terminated or core_truncated:
+            self._observation = transition.next_observation
+            terminated = transition.terminated
+            if terminated:
                 break
 
         self._decisions += 1
-        truncated = core_truncated or (
+        truncated = (
             not terminated
             and self.max_steps is not None
             and self._decisions >= self.max_steps
         )
         if terminated or truncated:
-            self.env.session.set_input(Action.NONE)
+            self.env.stop()
             self._episode_done = True
         elif applied_action & Action.BOMB:
             self.env.session.set_input(native_action & ~Action.BOMB)
-        result_info = self._info(info, delta_frames=delta_frames)
+        result_info = self._info({}, delta_frames=delta_frames)
         result_info.update(
             {
                 "native_action": int(native_action),
@@ -150,11 +145,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         )
 
     def close(self) -> None:
-        try:
-            if self._observation is not None:
-                self.env.session.set_input(Action.NONE)
-        finally:
-            self.env.close()
+        self.env.close()
 
     def _encode(self, observation: Observation) -> np.ndarray:
         return np.asarray(self.encoder.encode(observation), dtype=np.float32)

@@ -8,9 +8,9 @@ except ModuleNotFoundError:
     gymnasium = None
     np = None
 
-from auto_th10 import Action, Observation, Th10Env
+from auto_th10 import Action, Th10Env
 from auto_th10 import env as env_module
-from fakes import FakeSession, make_snapshot, observe
+from fakes import FakeSession, make_snapshot
 
 if gymnasium is not None:
     from training.rl.gym_env import MemoryGymEnv
@@ -32,7 +32,7 @@ class MemoryGymEnvTests(unittest.TestCase):
         action_repeat: int = 1,
         max_steps: int | None = None,
     ) -> MemoryGymEnv:
-        core = Th10Env(session=session, require_stage=False)
+        core = Th10Env(session=session)
         return MemoryGymEnv(
             env=core, action_repeat=action_repeat, max_steps=max_steps
         )
@@ -104,40 +104,6 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertAlmostEqual(reward, 0.204)
         self.assertTrue(session.inputs[-2] & Action.BOMB)
         self.assertFalse(session.inputs[-1] & Action.BOMB)
-
-    def test_core_truncation_stops_repeating_and_is_propagated(self) -> None:
-        class TruncatingCore:
-            def __init__(self) -> None:
-                self.session = FakeSession()
-                self.frames = 0
-                self.calls = 0
-
-            def reset(self) -> tuple[Observation, dict[str, object]]:
-                return observe(make_snapshot()), {}
-
-            def step(
-                self, action: object
-            ) -> tuple[Observation, float, bool, bool, dict[str, object]]:
-                self.calls += 1
-                self.frames += 1
-                self.session.set_input(action)
-                return observe(make_snapshot()), 0.0, False, True, {}
-
-            def close(self) -> None:
-                self.session.close()
-
-        core = TruncatingCore()
-        env = MemoryGymEnv(env=core, action_repeat=3)
-        env.reset()
-
-        _, _, terminated, truncated, _ = env.step(
-            np.asarray([0, 0], dtype=np.int64)
-        )
-
-        self.assertFalse(terminated)
-        self.assertTrue(truncated)
-        self.assertEqual(core.calls, 1)
-        self.assertEqual(core.session.inputs[-1], Action.NONE)
 
     def test_game_over_terminates_and_releases_input(self) -> None:
         session = FakeSession(

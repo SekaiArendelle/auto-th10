@@ -20,20 +20,23 @@ action and episode boundaries.
 ```
 Policy            decide an action from an observation
   |
-Agent loop        per frame: observe, act, record; per run: reward, ending
+Agent loop        per frame: observe, act, reward, record; per run: ending
   |
 Episode lifecycle when does a run end, and what happens then
   |
-Th10Env           observations and actions (python/auto_th10/env.py)
+Th10Env           actions and memory-backed transitions (python/auto_th10/env.py)
   |
 Session           process handle, memory reads, input injection
 ```
 
 The `Policy` boundary is the one that matters for the future: it takes an
 observation and returns an action, so a script and a model are interchangeable
-behind it and nothing below it changes. An observation carries the complete
-memory snapshot; the PPO feature encoder turns its variable-length entity lists
-into the fixed tuple consumed by a model.
+behind it and nothing below it changes. `Th10Env` applies that action and returns
+a transition with both observations, the applied action, elapsed game frames and
+the terminal flag. Reward belongs to the runner or training adapter consuming
+that transition. An observation carries the complete memory snapshot; the PPO
+feature encoder turns its variable-length entity lists into the fixed tuple
+consumed by a model.
 
 Two facts about the layer underneath are worth knowing here rather than reading
 again in the sources:
