@@ -24,10 +24,13 @@ pixi run build
 pixi run test
 ```
 
-Install the editable Python package:
+Pixi installs the Python package as an editable PyPI path dependency. Python
+source changes are visible immediately, while importing the package rebuilds
+the native extension when its C sources changed. To produce the standalone
+release build separately:
 
 ```powershell
-pixi run install-python
+pixi run build-release
 ```
 
 ## Manual Testing

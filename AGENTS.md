@@ -51,7 +51,7 @@ The toolchain comes from [Pixi](https://pixi.sh/) — do not install a compiler,
 
 - MinGW-w64 GCC (`gcc_win-64`, GCC 16 at the time of writing)
 - CMake and Ninja
-- Python 3.14 with `pip` and `scikit-build-core`
+- Python 3.14 with `scikit-build-core`
 
 `CMakeLists.txt` fails on any non-Windows host, and no other platform is supported. `clang-format` is not part of the
 Pixi environment either; see [Formatting](#formatting) for the optional formatting step.
@@ -63,8 +63,9 @@ Pixi environment either; see [Formatting](#formatting) for the optional formatti
    work goes in `src/`, brand-new C behavior is exposed through `include/auto_th10/auto_th10.h`, and anything that is
    just plumbing belongs in `python/auto_th10/`.
 2. **Code** – Follow [Coding conventions](#coding-conventions) below, and match the style of the file you edit.
-3. **Test** – Run `pixi run test-c` for C changes and `pixi run test-python` for Python changes (`pixi run test` runs
-   both, and is slower because it also produces a release build). Build first: `pixi run build`.
+3. **Test** – Run `pixi run test-c` for C changes, `pixi run test-python` for ordinary Python changes, and
+   `pixi run test-training` for RL/Gym changes. Run `pixi run test` for all three suites. Build first with
+   `pixi run build` when working on C code or the debug command-line tools.
 4. **Review** – After a substantive code change, ask a subagent to perform the
    [independent read-only review](#independent-read-only-review) when subagents are available. Validate its findings,
    fix confirmed issues, and rerun the affected checks.
@@ -117,22 +118,21 @@ design. A subagent review supplements, but does not replace, the required automa
 ```powershell
 pixi run build            # configure (--fresh) + debug build into build/dev
 pixi run test-c           # build, then ctest --preset dev
-pixi run test-python      # release build, editable install, then unittest discover
-pixi run test             # test-c and test-python
+pixi run test-python      # rebuild the editable extension on import, then unittest discover
+pixi run test             # test-c, test-python, and test-training
 ```
 
-Release and Python installation on their own:
+Release build on its own:
 
 ```powershell
 pixi run build-release    # configure-release + release build into build/release
-pixi run install-python   # build-release, then pip install --no-build-isolation -e .
 ```
 
 Notes:
 
-- Python imports the extension installed by `install-python`, which is a release build. After a C change, run
-  `pixi run test-python` — it rebuilds in release mode and reinstalls, which is what makes the change visible to the
-  Python layer. `pixi run build` alone (debug) does not.
+- Pixi installs the project as an editable PyPI path dependency. Python source changes are visible immediately;
+  scikit-build-core keeps a persistent build directory and rebuilds the release extension on import after C changes.
+  `pixi run build` still produces the separate debug binaries used by `th10ctl` and the C tests.
 - `pixi run ctl ...` runs `build/dev/th10ctl.exe`, so run `pixi run build` first.
 - The CMake options are `-DAUTO_TH10_BUILD_PYTHON`, `-DAUTO_TH10_BUILD_TESTS`, `-DAUTO_TH10_BUILD_TOOLS` (all `ON` by
   default). The Pixi tasks always use the full set, so for a narrower build run the CMake steps yourself:

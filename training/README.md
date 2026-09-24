@@ -210,8 +210,9 @@ env = MemoryGymEnv(action_repeat=1, max_steps=60_000)
 observation, info = env.reset()
 ```
 
-`pixi run test-training` installs the lightweight Gymnasium/NumPy part of those
-extras and runs the RL protocol, reward and adapter suites. It does not install
+`pixi run test-training` selects the `training-tests` Pixi environment, whose
+locked PyPI dependencies contain the lightweight Gymnasium/NumPy part of those
+extras, and runs the RL protocol, reward and adapter suites. It does not install
 PyTorch yet because no model code consumes it at this stage.
 
 `action_repeat` defaults to one because bullet avoidance needs frame-level

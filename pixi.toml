@@ -5,11 +5,13 @@ platforms = ["win-64"]
 
 [dependencies]
 python = "3.14.*"
-pip = ">=25,<27"
 cmake = ">=4.2,<5"
 ninja = ">=1.13,<2"
 gcc_win-64 = ">=15,<17"
 scikit-build-core = ">=0.10,<1"
+
+[pypi-dependencies]
+auto-th10 = { path = ".", editable = true }
 
 [tasks]
 configure = "cmake --preset dev --fresh"
@@ -19,8 +21,16 @@ test-c = { cmd = "ctest --preset dev", depends-on = ["build"] }
 ctl = "build/dev/th10ctl.exe"
 configure-release = "cmake --preset release --fresh"
 build-release = { cmd = "cmake --build --preset release", depends-on = ["configure-release"] }
-install-python = { cmd = "python -m pip install --no-build-isolation -e .", depends-on = ["build-release"] }
-test-python = { cmd = "python -m unittest discover -s tests/python -v", depends-on = ["install-python"] }
-install-training-tests = { cmd = ".pixi/envs/default/python.exe -m pip install \"gymnasium>=1.0\" \"numpy>=2.0\"", depends-on = ["install-python"] }
-test-training = { cmd = ".pixi/envs/default/python.exe -m unittest discover -s tests/python -p \"test_rl_*.py\" -v", depends-on = ["install-training-tests"] }
+test-python = "python -m unittest discover -s tests/python -v"
 test = { depends-on = ["test-c", "test-python", "test-training"] }
+
+[feature.training-tests.pypi-dependencies]
+gymnasium = ">=1.0"
+numpy = ">=2.0"
+
+[feature.training-tests.tasks]
+test-training = "python -m unittest discover -s tests/python -p \"test_rl_*.py\" -v"
+
+[environments]
+default = { features = [], solve-group = "default" }
+training-tests = { features = ["training-tests"], solve-group = "default" }

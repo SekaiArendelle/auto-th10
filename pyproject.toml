@@ -15,4 +15,7 @@ train = ["gymnasium>=1.0", "numpy>=2.0", "torch>=2.0"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"
+cmake.args = ["-G", "Ninja"]
+build-dir = "build/python-ninja/{wheel_tag}"
+editable.rebuild = true
 wheel.packages = ["python/auto_th10"]
