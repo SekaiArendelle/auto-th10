@@ -9,7 +9,6 @@ from auto_th10.restart import (
     leave_game_over,
     leave_name_entry,
     tap,
-    wait_for,
 )
 from fakes import FakeSession, make_snapshot
 
@@ -21,19 +20,6 @@ class TapTests(unittest.TestCase):
         tap(session, Action.SHOOT, seconds=0)
 
         self.assertEqual(session.inputs, [Action.SHOOT, Action.NONE])
-
-
-class WaitForTests(unittest.TestCase):
-    def test_returns_as_soon_as_the_predicate_holds(self) -> None:
-        session = FakeSession()
-
-        wait_for(session, lambda game: True, timeout_s=1.0)
-
-    def test_raises_when_the_predicate_never_holds(self) -> None:
-        session = FakeSession()
-
-        with self.assertRaises(TimeoutError):
-            wait_for(session, lambda game: False, timeout_s=0.01, poll_s=0.001)
 
 
 class NoWaiting:

@@ -11,9 +11,9 @@ The second job is to be a teacher. A deterministic policy that plays a real stag
 produces `(observation, action, reward)` rows without a model in the loop, so it
 can generate the first dataset and later act as the baseline a model has to beat.
 
-A model is deliberately out of scope here. Nothing below needs one, and the
-interfaces are shaped so that swapping one in later does not move any other
-layer.
+A memory-backed PPO model is the next layer to add. Nothing below depends on its
+implementation: scripted baselines and learned policies use the same observation,
+action and episode boundaries.
 
 ## Layers
 
@@ -31,10 +31,9 @@ Session           process handle, memory reads, input injection
 
 The `Policy` boundary is the one that matters for the future: it takes an
 observation and returns an action, so a script and a model are interchangeable
-behind it and nothing below it changes. Observations are a struct rather than a
-bare array so that a memory-reading policy and a screen-reading policy can both
-be served without touching the loop; the screen is an opt-in field that nothing
-fills in yet.
+behind it and nothing below it changes. An observation carries the complete
+memory snapshot; the PPO feature encoder turns its variable-length entity lists
+into the fixed tuple consumed by a model.
 
 Two facts about the layer underneath are worth knowing here rather than reading
 again in the sources:

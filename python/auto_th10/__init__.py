@@ -1,7 +1,6 @@
 from .env import (
     EVAL_PRESET,
     TRAIN_PRESET,
-    Frame,
     NotInStage,
     Observation,
     OnDeath,
@@ -26,7 +25,6 @@ __all__ = [
     "EVAL_PRESET",
     "EnemyBullet",
     "EnemyLaser",
-    "Frame",
     "GameNotFound",
     "GameplayNotActive",
     "NotInStage",

@@ -103,25 +103,10 @@ EVAL_PRESET = Settings()
 
 
 @dataclass(frozen=True, slots=True)
-class Frame:
-    """One captured screen, for a policy that reads pixels instead of memory.
-
-    Nothing fills this in yet: the scripted policies decide from
-    Observation.snapshot alone, and reading pixels needs the capture path to be
-    measured for throughput first.
-    """
-
-    width: int
-    height: int
-    data: bytes
-
-
-@dataclass(frozen=True, slots=True)
 class Observation:
-    """What a policy decides from: the game's state, optionally with its screen."""
+    """The memory-backed game state from which a policy decides."""
 
     snapshot: Snapshot
-    frame: Frame | None = None
 
 
 class NotInStage(RuntimeError):

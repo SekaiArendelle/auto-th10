@@ -6,7 +6,7 @@ import unittest
 from auto_th10 import Action, Point
 from fakes import make_bullet, make_enemy, make_laser, make_snapshot, observe
 from training import collect, evaluate
-from training.dataset import SCHEMA_VERSION
+from training.dataset import SCHEMA_VERSION, to_row
 from training.loop import EpisodeResult, Step
 
 
@@ -65,7 +65,7 @@ class CollectTests(unittest.TestCase):
         )
 
     def test_the_row_carries_both_sides_of_the_transition(self) -> None:
-        row = collect.to_row(self.step)
+        row = to_row(self.step)
 
         self.assertEqual(row["schema_version"], SCHEMA_VERSION)
         self.assertEqual(row["observation"]["score"], 42)
@@ -92,7 +92,7 @@ class CollectTests(unittest.TestCase):
             terminated=False,
         )
 
-        snapshot = collect.to_row(step)["observation"]
+        snapshot = to_row(step)["observation"]
 
         self.assertEqual(snapshot["enemies"][0], {"x": 3.0, "y": 4.0, "width": 24.0, "height": 24.0})
         self.assertEqual(

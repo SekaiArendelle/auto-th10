@@ -17,7 +17,7 @@ import time
 
 from auto_th10 import NotInStage, Settings, Th10Env
 
-from .dataset import to_row
+from . import dataset
 from .loop import Step, run_episodes
 from .policy import POLICIES
 
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
 
             def record(step: Step) -> None:
                 nonlocal written
-                stream.write(json.dumps(to_row(step), sort_keys=True) + "\n")
+                stream.write(json.dumps(dataset.to_row(step), sort_keys=True) + "\n")
                 written += 1
 
             run_episodes(env, policy, args.episodes, max_steps=args.max_steps, on_step=record)

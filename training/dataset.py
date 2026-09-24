@@ -2,9 +2,9 @@
 
 Keeping serialization outside the collector makes the dataset a contract rather
 than an incidental view of the command line tool. Version 1 records both sides
-of each transition and every field in the memory-backed observation; a future
-pixel observation can introduce a new version without silently changing these
-rows.
+of each transition and every field in the memory-backed observation; an
+incompatible observation change introduces a new version rather than silently
+changing these rows.
 """
 
 from __future__ import annotations

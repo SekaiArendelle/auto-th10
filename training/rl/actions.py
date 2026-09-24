@@ -50,21 +50,25 @@ class ActionSpec:
     """The checkpoint metadata needed to interpret a model's action heads."""
 
     schema_version: int = ACTION_SCHEMA_VERSION
-    movement_choices: int = len(MOVEMENT_ACTIONS)
-    bomb_choices: int = 2
 
     def __post_init__(self) -> None:
-        for name in ("schema_version", "movement_choices", "bomb_choices"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise TypeError(f"{name} must be an integer")
+        if isinstance(self.schema_version, bool) or not isinstance(self.schema_version, int):
+            raise TypeError("schema_version must be an integer")
         if self.schema_version != ACTION_SCHEMA_VERSION:
             raise ValueError(
                 f"unsupported action schema {self.schema_version}; "
                 f"expected {ACTION_SCHEMA_VERSION}"
             )
-        if self.movement_choices != len(MOVEMENT_ACTIONS) or self.bomb_choices != 2:
-            raise ValueError("action head sizes do not match the selected schema")
+
+    @property
+    def movement_choices(self) -> int:
+        """Number of categories in the movement head for this schema."""
+        return len(MOVEMENT_ACTIONS)
+
+    @property
+    def bomb_choices(self) -> int:
+        """Number of categories in the binary bomb head for this schema."""
+        return 2
 
     @property
     def shape(self) -> tuple[int, int]:

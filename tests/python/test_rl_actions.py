@@ -50,12 +50,8 @@ class ActionSpecTests(unittest.TestCase):
     def test_mismatched_schema_metadata_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             ActionSpec(schema_version=99)
-        with self.assertRaises(ValueError):
-            ActionSpec(movement_choices=18)
         with self.assertRaises(TypeError):
             ActionSpec(schema_version=True)
-        with self.assertRaises(TypeError):
-            ActionSpec(movement_choices=17.0)  # type: ignore[arg-type]
 
 
 class DecodeActionTests(unittest.TestCase):

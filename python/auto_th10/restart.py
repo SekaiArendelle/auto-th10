@@ -14,7 +14,6 @@ a press that has not arrived yet.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
 
 from .session import Action, GameplayNotActive, Scene, ScreenKind, Session
 
@@ -100,23 +99,6 @@ def _press(session: Session, action: Action | int) -> None:
     session.focus()
     tap(session, action, seconds=TAP_SECONDS)
     time.sleep(STEP_SECONDS)
-
-
-def wait_for(
-    session: Session,
-    predicate: Callable[[Session], bool],
-    *,
-    timeout_s: float,
-    poll_s: float = POLL_SECONDS,
-) -> None:
-    """Polls `predicate` until it holds, or raises TimeoutError."""
-    deadline = time.monotonic() + timeout_s
-    while True:
-        if predicate(session):
-            return
-        if time.monotonic() >= deadline:
-            raise TimeoutError(f"the game did not reach the expected state within {timeout_s:g} s")
-        time.sleep(poll_s)
 
 
 def leave_game_over(session: Session, *, timeout_s: float) -> None:

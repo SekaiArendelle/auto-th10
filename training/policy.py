@@ -1,9 +1,9 @@
-"""Policies: the one layer the three planned agents differ in.
+"""Policies: the boundary shared by scripted and learned players.
 
 A policy is handed an Observation and returns the action to hold for the next
-frame. The scripted policies here are the first of the three; the other two will
-read memory and pixels, and because all of them sit behind this boundary, nothing
-below it has to know which kind is running.
+frame. The scripted policies here are the baseline for a memory-backed learned
+policy, and because both sit behind this boundary, nothing below it has to know
+which kind is running.
 
 `EvasivePolicy` is the one worth reading: it searches the moves the game accepts
 instead of reacting to the nearest bullet, and the arithmetic it does that with
