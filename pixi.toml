@@ -12,6 +12,8 @@ scikit-build-core = ">=0.10,<1"
 
 [pypi-dependencies]
 auto-th10 = { path = ".", editable = true }
+gymnasium = ">=1.0"
+numpy = ">=2.3.2"
 
 [tasks]
 configure = "cmake --preset dev --fresh"
@@ -22,15 +24,5 @@ ctl = "build/dev/th10ctl.exe"
 configure-release = "cmake --preset release --fresh"
 build-release = { cmd = "cmake --build --preset release", depends-on = ["configure-release"] }
 test-python = "python -m unittest discover -s tests/python -v"
-test = { depends-on = ["test-c", "test-python", "test-training"] }
-
-[feature.training-tests.pypi-dependencies]
-gymnasium = ">=1.0"
-numpy = ">=2.0"
-
-[feature.training-tests.tasks]
 test-training = "python -m unittest discover -s tests/python -p \"test_rl_*.py\" -v"
-
-[environments]
-default = { features = [], solve-group = "default" }
-training-tests = { features = ["training-tests"], solve-group = "default" }
+test = { depends-on = ["test-c", "test-python", "test-training"] }

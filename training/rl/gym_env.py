@@ -1,8 +1,7 @@
 """Gymnasium adapter for the memory-backed TH10 environment.
 
-This module is intentionally not imported by :mod:`training.rl`: Gymnasium and
-NumPy are optional training dependencies, while the feature and action
-protocols remain usable by the base installation.
+This is the only module in the layer that imports Gymnasium and NumPy, and
+`training.rl` re-exports it, so importing anything from that package needs them.
 """
 
 from collections.abc import Mapping

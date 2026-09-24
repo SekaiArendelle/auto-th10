@@ -1,23 +1,13 @@
 import unittest
 from unittest import mock
 
-try:
-    import gymnasium
-    import numpy as np
-except ModuleNotFoundError:
-    gymnasium = None
-    np = None
+import numpy as np
 
 from auto_th10 import TRAIN_PRESET, Action
 from auto_th10 import env as env_module
 from fakes import FakeSession, make_environment, make_snapshot
-
-if gymnasium is not None:
-    from training.rl import gym_env as gym_env_module
-    from training.rl.gym_env import MemoryGymEnv
-else:
-    gym_env_module = None
-    MemoryGymEnv = None
+from training.rl import MemoryGymEnv
+from training.rl import gym_env as gym_env_module
 
 
 class FakeCore:
@@ -34,7 +24,6 @@ class FakeCore:
         self.closes += 1
 
 
-@unittest.skipIf(gymnasium is None, "the optional training dependencies are not installed")
 class MemoryGymEnvTests(unittest.TestCase):
     def setUp(self) -> None:
         patcher = mock.patch.object(env_module, "PAUSE_SAMPLE_SECONDS", 0.0)

@@ -3,8 +3,8 @@
 Snapshots contain variable-length entity tuples.  The first model protocol
 sorts each tuple by distance from the player, keeps a configured prefix, and
 pads the rest with zeroes plus an explicit validity mask.  It is deliberately a
-plain tuple rather than a NumPy array so the protocol and its tests do not make
-the project's base installation depend on the optional training stack.
+plain tuple rather than a NumPy array, so this module needs nothing from the
+training stack; the Gymnasium adapter is the only module that imports it.
 """
 
 import math

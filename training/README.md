@@ -194,11 +194,12 @@ pixi run python -m training.collect --out runs/first.jsonl
   clipped positive score progress, and explicit penalties for a lost life, a
   bomb and game over. Every term remains visible in the step metadata so a
   training run can show what the policy is actually optimizing.
-- `training/rl/gym_env.py` - the optional Gymnasium adapter. Its observation is
-  the bounded feature vector, its `MultiDiscrete([17, 2])` action is movement
-  plus bomb, and it releases held input whenever an episode terminates or is
-  truncated. It is deliberately not re-exported by `training.rl`, so importing
-  the protocols does not require the optional NumPy/Gymnasium stack.
+- `training/rl/gym_env.py` - the Gymnasium adapter. Its observation is the
+  bounded feature vector, its `MultiDiscrete([17, 2])` action is movement plus
+  bomb, and it releases held input whenever an episode terminates or is
+  truncated. It is the only module that imports Gymnasium and NumPy, but
+  `training.rl` re-exports it, so importing anything from that package - the
+  action, feature and reward protocols included - needs them.
 - `training/shooting.py` - the fixed combat/dialogue shooting rule shared by the
   scripted baseline and the Gymnasium adapter.
 - `training/train.py` - a stub: the Gymnasium boundary is now ready, but the PPO
@@ -215,9 +216,8 @@ observation, info = env.reset()
 env.close()  # releases the game session the adapter built
 ```
 
-`pixi run test-training` selects the `training-tests` Pixi environment, whose
-locked PyPI dependencies contain the lightweight Gymnasium/NumPy part of those
-extras, and runs the RL protocol, reward and adapter suites. It does not install
+`pixi run test-training` runs the RL protocol, reward and adapter suites. The Pixi
+environment locks the Gymnasium/NumPy part of those extras; it does not install
 PyTorch yet because no model code consumes it at this stage.
 
 `action_repeat` defaults to one because bullet avoidance needs frame-level
