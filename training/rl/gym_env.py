@@ -27,7 +27,6 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
     def __init__(
         self,
         *,
-        env: Th10Env | None = None,
         feature_spec: FeatureSpec = FeatureSpec(),
         reward_spec: RewardSpec = RewardSpec(),
         action_repeat: int = 1,
@@ -37,7 +36,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         checked_action_repeat = _require_positive_integer(action_repeat, "action_repeat")
         if max_steps is not None:
             max_steps = _require_positive_integer(max_steps, "max_steps")
-        self.env = Th10Env(settings=TRAIN_PRESET) if env is None else env
+        self.env = Th10Env(settings=TRAIN_PRESET)
         self.encoder = MemoryFeatureEncoder(feature_spec)
         self.reward_spec = reward_spec
         self.action_repeat = checked_action_repeat
@@ -143,6 +142,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         )
 
     def close(self) -> None:
+        """Close the core environment this adapter built."""
         self.env.close()
 
     def _encode(self, observation: Observation) -> np.ndarray:

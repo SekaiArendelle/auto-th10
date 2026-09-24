@@ -259,6 +259,9 @@ wheels, so lowering either pin would advertise an install that cannot resolve.
   samples the frame counter twice); and `Th10Env` raises `NotInStage` rather than inject a key for a menu, the pause
   menu, an unknown screen, or an ending it is not allowed to leave. The one ending it does clear is one that was
   already on screen before the first episode, since that is left over from an earlier attempt.
+- A class that needs a resource builds it itself, so what it holds is what it closes, and there is no way to hand one in
+  (`Th10Env`, `MemoryGymEnv`). A test that needs a stand-in patches the constructor instead — `tests/python/fakes.py`
+  has `make_environment()` for that.
 - Text-producing enums that mirror C constants derive from `StrEnum`, so a member compares equal to the raw name the C
   side returns *and* prints as that name (`Scene` and `ScreenKind` in `session.py`).
 - Export public names explicitly through `__all__` in `python/auto_th10/__init__.py`.

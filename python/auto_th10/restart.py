@@ -77,9 +77,25 @@ class NotAnEnding(RuntimeError):
 
 
 def tap(session: Session, action: Action | int, seconds: float = TAP_SECONDS) -> None:
-    """Presses `action` for `seconds`, then releases everything."""
-    session.set_input(action)
-    time.sleep(seconds)
+    """Presses `action` for `seconds`, then releases everything.
+
+    The release is the second half of the press and goes out on every path from
+    here, the interrupt a Ctrl-C raises inside the hold included: a key left down is
+    the game holding a direction nobody asked for. This is the one place that knows
+    a press was sent, which is why the pairing is guaranteed here rather than
+    checked for afterwards.
+    """
+    try:
+        session.set_input(action)
+        time.sleep(seconds)
+    except BaseException:
+        try:
+            session.set_input(Action.NONE)
+        except BaseException:
+            # Whatever interrupted the hold is what the caller has to see; a
+            # release that fails during the unwind must not replace it.
+            pass
+        raise
     session.set_input(Action.NONE)
 
 

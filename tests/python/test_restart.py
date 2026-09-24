@@ -21,6 +21,15 @@ class TapTests(unittest.TestCase):
 
         self.assertEqual(session.inputs, [Action.SHOOT, Action.NONE])
 
+    def test_an_interrupted_hold_still_releases(self) -> None:
+        session = FakeSession()
+
+        with mock.patch.object(restart_module.time, "sleep", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                tap(session, Action.SHOOT)
+
+        self.assertEqual(session.inputs, [Action.SHOOT, Action.NONE])
+
 
 class NoWaiting:
     """Takes the spacing between presses out: a fake answers instantly, so the

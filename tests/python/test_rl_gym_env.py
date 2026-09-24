@@ -8,14 +8,30 @@ except ModuleNotFoundError:
     gymnasium = None
     np = None
 
-from auto_th10 import Action, Th10Env
+from auto_th10 import TRAIN_PRESET, Action
 from auto_th10 import env as env_module
-from fakes import FakeSession, make_snapshot
+from fakes import FakeSession, make_environment, make_snapshot
 
 if gymnasium is not None:
+    from training.rl import gym_env as gym_env_module
     from training.rl.gym_env import MemoryGymEnv
 else:
+    gym_env_module = None
     MemoryGymEnv = None
+
+
+class FakeCore:
+    """A core environment that only counts its closes.
+
+    The real Th10Env cannot be built without a game, so the one the adapter builds
+    is patched to this, which is how what close() does to it is observed.
+    """
+
+    def __init__(self) -> None:
+        self.closes = 0
+
+    def close(self) -> None:
+        self.closes += 1
 
 
 @unittest.skipIf(gymnasium is None, "the optional training dependencies are not installed")
@@ -32,10 +48,11 @@ class MemoryGymEnvTests(unittest.TestCase):
         action_repeat: int = 1,
         max_steps: int | None = None,
     ) -> MemoryGymEnv:
-        core = Th10Env(session=session)
-        return MemoryGymEnv(
-            env=core, action_repeat=action_repeat, max_steps=max_steps
-        )
+        """An adapter over a fake session: the core environment it builds is patched."""
+
+        core = make_environment(session)
+        with mock.patch.object(gym_env_module, "Th10Env", return_value=core):
+            return MemoryGymEnv(action_repeat=action_repeat, max_steps=max_steps)
 
     def test_reset_returns_a_bounded_float32_observation(self) -> None:
         env = self.make_env(FakeSession(snapshots=(make_snapshot(score=100),)))
@@ -149,7 +166,7 @@ class MemoryGymEnvTests(unittest.TestCase):
 
         self.assertEqual(session.inputs, [])
 
-    def test_close_delegates_to_the_core_environment(self) -> None:
+    def test_close_releases_input_and_closes_the_session(self) -> None:
         session = FakeSession()
         env = self.make_env(session)
         env.reset()
@@ -157,8 +174,18 @@ class MemoryGymEnvTests(unittest.TestCase):
 
         env.close()
 
-        self.assertTrue(session.closed)
         self.assertEqual(session.inputs[-1], Action.NONE)
+        self.assertTrue(session.closed)
+
+    def test_close_closes_the_environment_it_built(self) -> None:
+        core = FakeCore()
+        with mock.patch.object(gym_env_module, "Th10Env", return_value=core) as built:
+            env = MemoryGymEnv()
+
+        env.close()
+
+        self.assertEqual(built.call_args.kwargs["settings"], TRAIN_PRESET)
+        self.assertEqual(core.closes, 1)
 
 
 if __name__ == "__main__":

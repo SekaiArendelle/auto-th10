@@ -1,13 +1,13 @@
 import unittest
 
 from auto_th10 import Action, Th10Env
-from fakes import FakeSession, make_snapshot
+from fakes import FakeSession, make_environment, make_snapshot
 from training.loop import run_episode, run_episodes
 from training.policy import FixedPolicy
 
 
 def build_env(*snapshots) -> Th10Env:
-    return Th10Env(session=FakeSession(snapshots=snapshots))
+    return make_environment(FakeSession(snapshots=snapshots))
 
 
 class RunEpisodeTests(unittest.TestCase):
@@ -116,11 +116,9 @@ class RunEpisodeTests(unittest.TestCase):
                     raise OSError("release failed")
                 super().set_input(action)
 
-        env = Th10Env(
-            session=BrokenReleaseSession(
+        env = make_environment(BrokenReleaseSession(
                 snapshots=(make_snapshot(), make_snapshot(score=1))
-            )
-        )
+            ))
 
         with self.assertRaises(ZeroDivisionError):
             run_episode(

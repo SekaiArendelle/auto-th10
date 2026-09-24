@@ -211,6 +211,8 @@ from training.rl.gym_env import MemoryGymEnv
 
 env = MemoryGymEnv(action_repeat=1, max_steps=60_000)
 observation, info = env.reset()
+
+env.close()  # releases the game session the adapter built
 ```
 
 `pixi run test-training` selects the `training-tests` Pixi environment, whose

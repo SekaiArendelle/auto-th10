@@ -5,6 +5,9 @@ anywhere. They live in their own module because both the environment tests and
 the restart tests need them.
 """
 
+from typing import Any
+from unittest import mock
+
 from auto_th10 import (
     Action,
     EnemyBullet,
@@ -16,8 +19,11 @@ from auto_th10 import (
     Scene,
     ScreenKind,
     ScreenState,
+    Session,
     Snapshot,
+    Th10Env,
 )
+from auto_th10 import env as env_module
 
 DEFAULT_SCENE = Scene.STAGE
 
@@ -29,6 +35,18 @@ NAME_ENTRY_COLUMNS = 13
 
 NAME_ENTRY_LAST_ROW = 6
 """The grid's last row, the one holding the 終 cell that finishes the screen."""
+
+
+def make_environment(session: Session, **kwargs: Any) -> Th10Env:
+    """An environment over `session`, which the environment will close.
+
+    Th10Env builds the session it drives and therefore closes it, so a test cannot
+    hand one in - what it builds is patched instead. That is what keeps "what this
+    holds" and "what this closes" the same object, and it is why the stand-in is
+    built here rather than passed to the constructor.
+    """
+    with mock.patch.object(env_module, "Session", return_value=session):
+        return Th10Env(**kwargs)
 
 
 def make_snapshot(

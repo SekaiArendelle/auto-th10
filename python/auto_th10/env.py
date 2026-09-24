@@ -146,6 +146,11 @@ class Th10Env:
     reset() to validate the stage and start an episode, then step() to move one
     frame. Reward belongs to the runner or training adapter consuming the
     transition, not to this game-driving layer.
+
+    The session is this environment's own: it builds one and therefore closes it,
+    and the constructor takes no way to hand one in. A test that needs a stand-in
+    patches `auto_th10.env.Session` (see `tests/python/fakes.py`), which is what
+    keeps "what this holds" and "what this closes" one object.
     """
 
     poll_seconds: float = 0.001
@@ -157,12 +162,11 @@ class Th10Env:
         settings: Settings = EVAL_PRESET,
         frame_timeout_s: float = 2.0,
         transition_timeout_s: float = 10.0,
-        session: Session | None = None,
     ) -> None:
         self.settings = settings
         self.frame_timeout_s = frame_timeout_s
         self.transition_timeout_s = transition_timeout_s
-        self.session = Session() if session is None else session
+        self.session = Session()
         self._snapshot: Snapshot | None = None
         self._stage_frames = 0
         self._frames = 0
@@ -245,12 +249,7 @@ class Th10Env:
             stage_frames, snapshot = self._wait_for_next_snapshot()
         except BaseException:
             self._phase = _Phase.INTERRUPTED
-            try:
-                self.session.set_input(Action.NONE)
-            except BaseException:
-                # The action or read failure is the operation that failed; a
-                # second input failure must not replace it while unwinding.
-                pass
+            self._release_input()
             raise
         frames = self._advance_frame_count(stage_frames)
         self._snapshot = snapshot
@@ -283,6 +282,7 @@ class Th10Env:
         return self._steps
 
     def close(self) -> None:
+        """Release held input and close the session this environment built."""
         if self._phase is _Phase.CLOSED:
             return
         try:
@@ -297,6 +297,18 @@ class Th10Env:
             return
         self._phase = _Phase.INTERRUPTED
         self.session.set_input(Action.NONE)
+
+    def _release_input(self) -> None:
+        """Release held input without replacing the failure being handled.
+
+        A second input failure while unwinding must not hide the action, read or
+        interrupt that made the caller unwind: the game state is no worse for it,
+        and the first failure is the one worth reporting.
+        """
+        try:
+            self.session.set_input(Action.NONE)
+        except BaseException:
+            pass
 
     def __enter__(self) -> Th10Env:
         return self
