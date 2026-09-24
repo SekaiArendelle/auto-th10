@@ -9,6 +9,18 @@
 
 #include "auto_th10/auto_th10.h"
 
+/* One session, one owner. The pointer th10_open() hands back is moved rather than
+ * copied, and whoever holds it now is the only thing that can close it.
+ *
+ * th10_close() destroys that object - it frees the session rather than emptying
+ * it - so the pointer it was given is dead once it returns and calling it twice
+ * is undefined behaviour, the same rule free() follows. The library cannot clear
+ * the caller's variable, because all it ever receives is the value. A caller that
+ * passes the session on does it by assignment and sets its own name to NULL in
+ * the same breath, which is what leaves no state in which two names could close
+ * one session. There is no th10_move_session() for that: nothing here or in
+ * th10ctl moves a session between owners, and the whole operation is those two
+ * lines. */
 struct th10_session {
     HWND window;
     HANDLE process;

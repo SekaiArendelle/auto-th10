@@ -197,6 +197,38 @@ General:
 - Preserve current behavior unless the change intentionally updates it.
 - Add or update tests when behavior changes. Extend the existing suites rather than adding a new framework.
 
+### Lifetimes
+
+A resource has one owner, and its owner is the object that built it. These rules are the same in both layers; what
+differs is only how each language lets them be written down.
+
+- **Who builds it closes it.** A class that drives a session, a process handle or a stage clock builds that thing itself
+  and releases it in its own destructor (`th10_close`, `Th10Env.close`, `tp_dealloc`); nothing takes a built one as an
+  argument. Injection is how a class ends up with two owners, and a construction-time flag saying which kind it got
+  (`_owns_session`) is a branch a reader has to remember before they can predict what `close()` does. A test that needs
+  a stand-in patches the constructor the class actually calls — `tests/python/fakes.py` has `make_environment()` for
+  that — rather than making the production signature carry a test seam.
+- **Handing over is moving, not sharing.** Taking a resource out of one owner and into another means the old name stops
+  existing. In C that is an assignment plus a `NULL`, and it belongs to whoever moves it: `th10_close()` only ever
+  receives the value, so it cannot clear the caller's variable. What it does free is the session itself, which is why
+  the pointer is dead the moment it returns and closing it twice is undefined behaviour — the same rule `free()`
+  follows. A caller that cannot tell whether it still holds one keeps its own `NULL` for that, as `th10ctl`'s
+  `g_session` does.
+- **Destruction takes exactly what the object holds.** `th10_close()` is called once and does not write `NULL` back
+  through a `th10_session **`; `th10_snapshot_destroy()` is safe to repeat only because the struct it empties is the
+  caller's own storage and stays alive. Neither guesses whether the caller still has a name for the resource, because
+  that is not a question destruction can answer. There is deliberately no `th10_move_session()`: nothing in the tree
+  moves a session between owners, and the whole operation is two lines.
+- **In Python, `close()` is idempotent and reuse raises.** An owner cannot assume the caller closes at the right
+  moment, because a Python object may outlive the statement that finished with it: `Session.close()` and
+  `Th10Env.close()` return early when already closed, and using one afterwards raises `SessionClosedError` or a clear
+  `RuntimeError` instead of reading freed state (`ensure_open` in `_native.c`). That is the same ownership model, not
+  a looser one — the reference that closed it is the only one that ever held it.
+- **A side effect is released on every path out, and where it was caused.** Input the environment injected is the
+  environment's effect on the game, so `step()`, `stop()` and `close()` release it, exception paths included, and
+  `restart.tap()` pairs its release with its press so an interrupt inside the hold cannot leave a key down. A caller
+  further up cannot know a press was sent, so it cannot be the one to clear it.
+
 ### C conventions
 
 C17 throughout (`c_std_17` in `CMakeLists.txt`). `th10_core` and `th10ctl` are compiled with `-Wall -Wextra -Wpedantic`
@@ -250,6 +282,11 @@ wheels, so lowering either pin would advertise an install that cannot resolve.
   annotations lazily (PEP 649), which is what a forward reference needs, and it leaves them real objects instead of
   strings. The price is that a reader may evaluate any annotation, so every name an annotation names has to exist at
   runtime — do not import a name in an `if TYPE_CHECKING:` block just to annotate with it.
+- **A missing dependency raises; the fix is Pixi.** Import what a module needs at the top of that module: no
+  `try`/`except ModuleNotFoundError` with a sentinel `None`, no `skipIf`, and no `__init__` that leaves a module
+  unexported to stay importable without it. A guard turns "this environment is broken" into "that optional part is not
+  installed" and hides the real failure behind a skip. `training/` is not in the wheel either (`wheel.packages` ships
+  `python/auto_th10` only), so there is no base installation to protect.
 - Value types are `@dataclass(frozen=True, slots=True)` (`python/auto_th10/types.py`). Keep them immutable.
 - Keep the layer thin and declarative: Win32 behavior belongs in C, and `session.py` should stay a named wrapper over
   `_native`. Anything that drives the game (the environment, the key sequences in `restart.py`) stays in
@@ -259,9 +296,6 @@ wheels, so lowering either pin would advertise an install that cannot resolve.
   samples the frame counter twice); and `Th10Env` raises `NotInStage` rather than inject a key for a menu, the pause
   menu, an unknown screen, or an ending it is not allowed to leave. The one ending it does clear is one that was
   already on screen before the first episode, since that is left over from an earlier attempt.
-- A class that needs a resource builds it itself, so what it holds is what it closes, and there is no way to hand one in
-  (`Th10Env`, `MemoryGymEnv`). A test that needs a stand-in patches the constructor instead — `tests/python/fakes.py`
-  has `make_environment()` for that.
 - Text-producing enums that mirror C constants derive from `StrEnum`, so a member compares equal to the raw name the C
   side returns *and* prints as that name (`Scene` and `ScreenKind` in `session.py`).
 - Export public names explicitly through `__all__` in `python/auto_th10/__init__.py`.
