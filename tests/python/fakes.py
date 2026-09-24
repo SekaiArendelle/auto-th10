@@ -8,6 +8,7 @@ the restart tests need them.
 from __future__ import annotations
 
 from auto_th10 import (
+    Action,
     EnemyBullet,
     EnemyLaser,
     GameplayNotActive,
@@ -15,10 +16,21 @@ from auto_th10 import (
     Point,
     Rect,
     Scene,
+    Screen,
     Snapshot,
+    Ui,
 )
 
 DEFAULT_SCENE = Scene.STAGE
+
+MENU_ENTRIES = 3
+"""How many entries the ending's menu has: 継続する, リプレイを保存する, タイトル画面に戻る."""
+
+NAME_ENTRY_COLUMNS = 13
+"""How many cells one row of the name entry's grid holds."""
+
+NAME_ENTRY_LAST_ROW = 6
+"""The grid's last row, the one holding the 終 cell that finishes the screen."""
 
 
 def make_snapshot(
@@ -83,11 +95,13 @@ class FakeSession:
         snapshots: tuple[Snapshot, ...] = (),
         frame_step: int = 1,
         frame_values: tuple[int, ...] = (),
-        record_broken: bool = False,
-        record_broken_error: Exception | None = None,
         no_stage_for: int = 0,
         snapshot_gaps: tuple[int, ...] = (),
         freeze_after: int = 0,
+        ui_screen: Screen = Screen.STAGE,
+        ui_cursor: int = 0,
+        ui_error: Exception | None = None,
+        refuse_cursor_writes: bool = False,
     ) -> None:
         self._scenes = list(scenes) or [DEFAULT_SCENE]
         self._snapshots = list(snapshots) or [make_snapshot()]
@@ -99,8 +113,10 @@ class FakeSession:
         self._no_stage = no_stage_for
         self._snapshot_gaps = set(snapshot_gaps)
         self._snapshot_reads = 0
-        self.record_broken_value = record_broken
-        self.record_broken_error = record_broken_error
+        self.ui_screen = ui_screen
+        self.ui_cursor = ui_cursor
+        self.ui_error = ui_error
+        self.refuse_cursor_writes = refuse_cursor_writes
         self.inputs: list[object] = []
         self.focus_calls = 0
         self.closed = False
@@ -134,14 +150,72 @@ class FakeSession:
 
     def set_input(self, action: object) -> None:
         self.inputs.append(action)
+        self._apply(action)
+
+    def _apply(self, action: object) -> None:
+        """Moves the fake game's cursor the way the real one does.
+
+        Only the presses the restart sequences send are modelled, and only the
+        arithmetic those sequences depend on: a direction on the name entry's grid
+        (one cell, rows wrapping) or in the ending's menu (one entry, the list
+        wrapping), and the confirm that leaves either screen. The real game's other
+        keys are not modelled because no sequence sends them here.
+        """
+        value = int(action)
+        if value == int(Action.NONE):
+            return
+        if self.ui_screen is Screen.NAME_ENTRY:
+            self._apply_grid(value)
+        elif self.ui_screen is Screen.MENU:
+            if value == int(Action.DOWN):
+                self.ui_cursor = (self.ui_cursor + 1) % MENU_ENTRIES
+            elif value == int(Action.SHOOT):
+                self.ui_screen = Screen.STAGE  # 継続する starts the next run
+                self.ui_cursor = 0
+        elif value == int(Action.SHOOT):
+            # The ending wears no menu of its own: one confirm opens it, and it
+            # opens on its last entry (measured; the cursor is what a sequence has
+            # to read rather than count from).
+            self.ui_screen = Screen.MENU
+            self.ui_cursor = MENU_ENTRIES - 1
+
+    def _apply_grid(self, value: int) -> None:
+        row, column = divmod(self.ui_cursor, NAME_ENTRY_COLUMNS)
+        if value == int(Action.DOWN):
+            row = min(row + 1, NAME_ENTRY_LAST_ROW)
+        elif value == int(Action.RIGHT):
+            column = (column + 1) % NAME_ENTRY_COLUMNS  # a row wraps at its end
+        elif value == int(Action.SHOOT):
+            self.ui_screen = Screen.MENU  # 終 wrote the record and went back
+            self.ui_cursor = 0
+            return
+        self.ui_cursor = row * NAME_ENTRY_COLUMNS + column
 
     def focus(self) -> None:
         self.focus_calls += 1
 
-    def record_broken(self) -> bool:
-        if self.record_broken_error is not None:
-            raise self.record_broken_error
-        return self.record_broken_value
+    def ui(self) -> Ui:
+        if self.ui_error is not None:
+            raise self.ui_error
+        return Ui(screen=self.ui_screen, cursor=self.ui_cursor)
+
+    def set_ui_cursor(self, cursor: int) -> int:
+        """The write side of `ui()`, and it takes the cell the way the real one does.
+
+        `refuse_cursor_writes` makes the fake answer as a screen with no cursor
+        does, which is what the restart sequences fall back from.
+        """
+        if self.refuse_cursor_writes or self.ui_screen not in (Screen.MENU, Screen.NAME_ENTRY):
+            raise RuntimeError("the screen the game is driving keeps no cursor")
+        limit = (
+            MENU_ENTRIES
+            if self.ui_screen is Screen.MENU
+            else (NAME_ENTRY_LAST_ROW + 1) * NAME_ENTRY_COLUMNS
+        )
+        if not 0 <= cursor < limit:
+            raise ValueError(f"entry {cursor} is outside the cursor's range 0..{limit - 1}")
+        self.ui_cursor = cursor
+        return cursor
 
     def close(self) -> None:
         self.closed = True

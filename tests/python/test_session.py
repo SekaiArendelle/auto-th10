@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 import auto_th10
-from auto_th10 import Action, GameplayNotActive, Scene, SessionClosedError
+from auto_th10 import Action, GameplayNotActive, Scene, Screen, SessionClosedError
 from auto_th10 import session as session_module
 
 
@@ -25,6 +25,29 @@ class SceneTests(unittest.TestCase):
 
     def test_is_a_str_so_it_compares_with_the_raw_value(self) -> None:
         self.assertEqual(Scene.STAGE, "TH10_SCENE_STAGE")
+
+
+class ScreenTests(unittest.TestCase):
+    """The screen id: finer than the family, and the only read that tells an
+    ending's menu from the name entry behind it."""
+
+    def test_members_carry_the_native_names(self) -> None:
+        self.assertEqual(
+            {member.value for member in Screen},
+            {
+                "TH10_UI_SCREEN_UNKNOWN",
+                "TH10_UI_SCREEN_STAGE",
+                "TH10_UI_SCREEN_MENU",
+                "TH10_UI_SCREEN_NAME_ENTRY",
+            },
+        )
+
+    def test_members_round_trip_from_text(self) -> None:
+        for member in Screen:
+            self.assertIs(Screen(member.value), member)
+
+    def test_is_a_str_so_it_compares_with_the_raw_value(self) -> None:
+        self.assertEqual(Screen.NAME_ENTRY, "TH10_UI_SCREEN_NAME_ENTRY")
 
 
 class ActionTests(unittest.TestCase):

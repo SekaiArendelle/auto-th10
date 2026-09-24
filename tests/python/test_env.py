@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from auto_th10 import (
     EVAL_PRESET,
@@ -7,11 +8,25 @@ from auto_th10 import (
     NotInStage,
     OnDeath,
     Scene,
+    Screen,
     SessionClosedError,
     Settings,
     Th10Env,
 )
+from auto_th10 import restart as restart_module
 from fakes import FakeSession, make_snapshot
+
+
+class NoWaiting:
+    """Takes the spacing between the restart presses out: a fake session answers
+    instantly, so the real constants would only make the suite slower."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        for name in ("TAP_SECONDS", "STEP_SECONDS"):
+            patcher = mock.patch.object(restart_module, name, 0.0)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
 
 class StartableTests(unittest.TestCase):
@@ -63,7 +78,7 @@ class SettingsTests(unittest.TestCase):
         self.assertIs(TRAIN_PRESET.on_death, OnDeath.RESTART)
 
 
-class ResetTests(unittest.TestCase):
+class ResetTests(NoWaiting, unittest.TestCase):
     """reset() drives the lifecycle, so the constructor check is kept out of the way."""
 
     def test_reset_focuses_the_window_and_returns_the_first_observation(self) -> None:
@@ -115,13 +130,68 @@ class ResetTests(unittest.TestCase):
         self.assertEqual(observation.snapshot.score, 8)
 
     def test_reset_refuses_the_name_entry_when_on_name_entry_is_stop(self) -> None:
+        # The ranking asks for a name when a run reaches it, which is a lower bar
+        # than a broken high score - the flag stays clear here - so the screen is
+        # what the lifecycle reads. Nothing is sent into the grid.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True),),
-            record_broken=True,
+            ui_screen=Screen.NAME_ENTRY,
+            ui_cursor=0,
         )
 
-        with self.assertRaises(NotInStage):
-            Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False).reset()
+        with self.assertRaisesRegex(NotInStage, "waiting for a name"):
+            Th10Env(settings=EVAL_PRESET, session=session, require_stage=False).reset()
+
+        self.assertEqual(session.inputs, [])
+
+    def test_reset_walks_the_name_entry_out_when_the_settings_say_so(self) -> None:
+        # The collecting preset answers the ranking instead of stopping on it: the
+        # grid is walked onto 終, the record is written with the game's own default
+        # name, and the next run starts from the menu the confirm leaves behind.
+        session = FakeSession(
+            snapshots=(make_snapshot(lives=-1, game_over=True), make_snapshot(score=8)),
+            ui_screen=Screen.NAME_ENTRY,
+            ui_cursor=0,
+        )
+
+        observation, _ = Th10Env(
+            settings=TRAIN_PRESET, session=session, require_stage=False
+        ).reset()
+
+        self.assertEqual(observation.snapshot.score, 8)
+        self.assertIs(session.ui_screen, Screen.STAGE)
+
+    def test_reset_handles_a_name_entry_that_appears_during_restart(self) -> None:
+        # The run's game-over flag can become visible before the ranking installs
+        # its UI object. The ordinary restart sees STAGE first and tries to open
+        # the ending menu; if the name entry appears around that press, reset must
+        # redispatch it instead of surfacing NotAnEnding and aborting evaluation's
+        # next episode.
+        class LateNameEntrySession(FakeSession):
+            def _apply(self, action: object) -> None:
+                if self.ui_screen is Screen.STAGE and action == Action.SHOOT:
+                    self.ui_screen = Screen.NAME_ENTRY
+                    self.ui_cursor = 0
+                    return
+                super()._apply(action)
+
+        session = LateNameEntrySession(
+            snapshots=(
+                make_snapshot(),
+                make_snapshot(lives=-1, game_over=True),
+                make_snapshot(lives=-1, game_over=True),
+                make_snapshot(score=8),
+            ),
+        )
+        env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
+        env.reset()
+        env.step(Action.RIGHT | Action.SHOOT)
+
+        observation, _ = env.reset()
+
+        self.assertEqual(observation.snapshot.score, 8)
+        self.assertIs(session.ui_screen, Screen.STAGE)
+        self.assertIn(Action.NONE, session.inputs)  # the previous episode's input was released
 
     def test_reset_refuses_a_stage_that_is_frozen(self) -> None:
         # Past the constructor - the family is a stage - and stopped at reset: the
@@ -154,27 +224,47 @@ class ResetTests(unittest.TestCase):
         with self.assertRaises(SessionClosedError):
             Th10Env(session=ClosedSession(), require_stage=False).reset()
 
-    def test_a_record_flag_read_failure_stops_before_confirming_the_ending(self) -> None:
+    def test_reset_refuses_a_restart_that_lands_at_the_title(self) -> None:
+        # The restart sequence reports a game that ended up back at the title
+        # rather than pressing on through the setup screens, and the environment
+        # turns that into its own refusal: a caller only ever sees NotInStage.
+        session = FakeSession(
+            snapshots=(make_snapshot(), make_snapshot(lives=-1, game_over=True)),
+            scenes=(Scene.STAGE, Scene.STAGE, Scene.MENU),
+        )
+        env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
+        env.reset()
+        env.step(Action.NONE)
+
+        with self.assertRaisesRegex(NotInStage, "ending's own menu"):
+            env.reset()
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+
+    def test_a_ui_read_failure_stops_before_confirming_the_ending(self) -> None:
+        # The screen is what tells an ending's menu from the name entry behind it,
+        # and a read that failed says neither: a confirm sent on the strength of it
+        # could type into the ranking. The failure travels out instead.
         session = FakeSession(
             snapshots=(make_snapshot(lives=-1, game_over=True),),
-            record_broken_error=OSError("record flag could not be read"),
+            ui_error=OSError("the game's ui could not be read"),
         )
 
-        with self.assertRaisesRegex(OSError, "record flag could not be read"):
+        with self.assertRaisesRegex(OSError, "ui could not be read"):
             Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False).reset()
 
         self.assertEqual(session.inputs, [])
 
-    def test_a_record_flag_read_failure_releases_the_previous_episode_input(self) -> None:
+    def test_a_ui_read_failure_releases_the_previous_episode_input(self) -> None:
         session = FakeSession(
             snapshots=(make_snapshot(), make_snapshot(lives=-1, game_over=True)),
-            record_broken_error=OSError("record flag could not be read"),
+            ui_error=OSError("the game's ui could not be read"),
         )
         env = Th10Env(settings=TRAIN_PRESET, session=session, require_stage=False)
         env.reset()
         env.step(Action.RIGHT | Action.SHOOT)
 
-        with self.assertRaisesRegex(OSError, "record flag could not be read"):
+        with self.assertRaisesRegex(OSError, "ui could not be read"):
             env.reset()
 
         self.assertEqual(session.inputs[-1], Action.NONE)

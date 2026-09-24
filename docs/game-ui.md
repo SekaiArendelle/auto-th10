@@ -79,6 +79,7 @@ Three reads, and the rule is to use the cheapest one that answers the question:
 | Question | Read | Cost |
 | --- | --- | --- |
 | A stage at all, or the menus? | `th10_read_scene()` / `Session.scene()` | one word, nothing to wait for |
+| Which screen is it, and where is its cursor? | `th10_read_ui()` / `Session.ui()` | a pointer chase and a word |
 | Is there a run, and is it over? | `th10_read_snapshot()` | one pass over the game's live objects |
 | Still running, or frozen? | `th10_read_stage_frames()` twice | two reads, and the gap between them is yours to choose |
 
@@ -88,6 +89,21 @@ or paused", and what it returns is coarser than the snapshot sitting beside it. 
 is kept for people and for one-shot diagnostics, and the Python binding does not
 offer it at all - `Session` deliberately has no `state()`, so an agent cannot
 reach for it by accident.
+
+`th10_read_ui()` is the one read that says which screen the game is driving and
+where its highlight sits. It is a different kind of read from the rest: the screen
+id and the cursor live in an object the game points at from a fixed address, and
+that pointer moves as the game changes screen, so it is read on every call rather
+than kept. Three ids have been measured - a stage, a menu, the ranking's name entry -
+and anything else is reported as unknown rather than guessed at.
+
+That cursor is also the one thing this library writes. `th10_write_ui_cursor()`
+moves it, which is the same change a direction key makes: the field is what the
+game's own key handling reads and writes, so nothing else about the game is touched -
+not the run, not the score, not the record. It exists because a highlight is easier
+to place than to drive: reaching the name entry's `終` by pressing `right` and `down`
+is eighteen presses that each have to arrive, and the press is also the part that
+fails silently when the window loses the foreground.
 
 What each value can and cannot say, all measured:
 
@@ -189,6 +205,10 @@ at the same time, since a window that has lost the foreground is not sent any.
 menu needs one `SHOOT`. It is drawn in Japanese with the English underneath, and
 the English says more about what each entry is for:
 
+One ending is not this one. A run that reached the top ten of its difficulty is
+asked for a name before any of this appears - see "The ranking's name entry" below -
+and the menu comes back with its cursor on `継続する` once that screen is answered.
+
 | Entry | English | What it does |
 | --- | --- | --- |
 | `継続する` | `Continue` | starts the next run straight away |
@@ -217,6 +237,54 @@ that wants its next run sends `SHOOT` once to open the menu, `up` twice to reach
 `継続する`, and `SHOOT` again - two presses past the default, and it starts the run
 instead of retreating to the title.
 
+## The ranking's name entry
+
+A run that reaches the top ten of the difficulty it was played on does not get the
+plain ending above. The game opens **Score Ranking** on the spot - that
+difficulty's own table with the run's line in it, and a character grid underneath -
+and waits for a name. Nothing has to be pressed to get there, and it is not the
+game over menu: that menu only comes back after the name entry has been answered.
+
+The trigger is the ranking, not the high score. `HiScore` is a separate value, drawn
+on the right of the screen, and the game raises its own event flag when a run passes
+*that* - which a run that only reached tenth place has usually not done. A driver
+that reads that flag as "a name is due" will sit on this screen and type into it
+instead of leaving, which is exactly what happened here: the flag was clear, the
+name entry was up, and the restart sequence's confirm presses went into the grid.
+
+How it is laid out, measured by reading the cursor out of the game and pressing one
+key at a time:
+
+- The grid is one list laid out **13 cells per row**, and the last row is full:
+  `{ } | ~ ^ # $ % & □ BS 終` runs from cell 78 to cell 90.
+- A direction moves **exactly one cell** - 100 ms held is one cell, not two, which is
+  what makes it steerable at all - and a row **wraps at its end**: cell 12 of a row is
+  followed by cell 0 of that same row. `down` moves one row and does not wrap with it.
+- `終`, the cell that finishes the screen, is the **last cell** (90). `SHOOT` on it
+  writes the record with the name already in the buffer - `AAAAAA` if nothing typed -
+  and puts the game over menu back with its cursor on `Continue`, so a driver that
+  wants the next run confirms once more from there.
+
+Counting presses to reach `終` is what made this screen look like one with no way
+out. The cursor can be read, and it can also be written: the field is the one the
+game's own key handling moves, on the same object the menu's cursor lives on.
+Measured on both screens - writing the menu's highlight made the entry under it the
+one a confirm took, and writing a cell of the grid moved the highlight to it, cell 0
+and cell 90 both written and read back on a name entry the game was waiting on.
+Leaving the screen is therefore two steps, highlight `終` and confirm, rather than
+eighteen presses that each have to arrive.
+
+```powershell
+.\build\dev\th10ctl.exe ui          # TH10_UI_SCREEN_NAME_ENTRY cursor=0..90
+.\build\dev\th10ctl.exe ui 90       # put the highlight on 終; a `hold shoot` after it
+                                    # writes the record
+```
+
+The same grid is behind `リプレイを保存する / Save Replay`, one entry below `Continue`
+on the game over menu. Nothing here walks into it: that flow writes a replay file, and
+its grid is only reached after a slot has been chosen - the cursor being writable does
+not make that a screen to drive into.
+
 ## Replay save, and the name entry behind it
 
 `リプレイを保存する` opens a list of 25 slots (`No. 01` … `No. 25`); up/down
@@ -239,5 +307,6 @@ slips past the repeat boundary and moves several cells, and a row wraps into the
 next one. Counting presses to reach the `終` in the bottom-right corner is
 therefore not a plan, and neither is leaving by pressing `ESCAPE` a few times -
 it only eats the name one character at a time. **An agent should never confirm its
-way into this screen**: the only way out is `終`, and reaching it by script was
-not achieved; the one time it was left, it was walked by hand.
+way into this screen**: the only way out is `終`, and while that cell is reachable
+now (it is the last cell of the grid described above), walking out of a flow nobody
+meant to enter is not the same as having a script for it.

@@ -29,3 +29,30 @@ bool th10_read_memory(th10_session *session, uintptr_t address, void *output, si
     }
     return true;
 }
+
+/* The write side of the same idiom. Nothing public exposes it: a caller never
+ * gets an address from this library, only the meaning of the field it wants
+ * changed, so the address always comes from a constant in this file's headers. */
+bool th10_write_memory(th10_session *session, uintptr_t address, const void *input, size_t size,
+                       th10_write_failure *failure) {
+    SIZE_T bytes_written = 0;
+
+    if (failure != NULL) {
+        *failure = (th10_write_failure){
+            .address = address,
+            .requested_size = size,
+        };
+    }
+    if (session == NULL || session->process == NULL || input == NULL || size == 0) {
+        return false;
+    }
+    if (!WriteProcessMemory(session->process, (LPVOID)address, input, size, &bytes_written) ||
+        bytes_written != size) {
+        if (failure != NULL) {
+            failure->bytes_written = bytes_written;
+            failure->win32_error = GetLastError();
+        }
+        return false;
+    }
+    return true;
+}

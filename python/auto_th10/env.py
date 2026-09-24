@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 from . import restart
-from .session import Action, GameplayNotActive, Scene, Session
+from .session import Action, GameplayNotActive, Scene, Screen, Session
 from .types import Snapshot
 
 PAUSE_SAMPLE_SECONDS = 0.12
@@ -44,13 +44,25 @@ class OnDeath(Enum):
 
 
 class OnNameEntry(Enum):
-    """What to do when a broken record makes the game ask for a name."""
+    """What to do when the run reached its difficulty's ranking and the game asks
+    for a name.
+
+    This is not the same question as a broken high score: the ranking takes the top
+    ten of the difficulty that was played, which a run reaches far more often, and
+    the high score is a different and higher bar that a run can be asked for a name
+    without ever passing.
+    """
 
     STOP = auto()
     """Leave it on screen: a record is worth surfacing, not a hiccup."""
 
-    TYPE = auto()
-    """Enter a name and carry on. Not implemented - see restart.type_name()."""
+    LEAVE = auto()
+    """Confirm the name the game already holds and carry on.
+
+    Nothing types into the grid, so what gets written is the game's own default
+    name - which is what a collector wants, since the next episode needs a stage
+    rather than a name of its own.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +74,14 @@ class Settings:
     confirm_timeout_s: float = 5.0
     """How long a menu key sequence is given to take effect."""
 
+    name_entry_timeout_s: float = 20.0
+    """How long the name entry's grid is given to be walked.
+
+    That screen is 13 cells by 7 rows and the cursor moves one cell per press, so
+    this is a budget of presses rather than of screens: the same 5 s the menu gets
+    would cover a third of the way to 終 and then refuse a game that was working.
+    """
+
     @staticmethod
     def for_episodes(episodes: int) -> Settings:
         """The settings that fit a run of `episodes` episodes.
@@ -72,8 +92,11 @@ class Settings:
         return TRAIN_PRESET if episodes > 1 else EVAL_PRESET
 
 
-TRAIN_PRESET = Settings(on_death=OnDeath.RESTART)
-"""Collect data: get back into a stage as fast as the game allows."""
+TRAIN_PRESET = Settings(on_death=OnDeath.RESTART, on_name_entry=OnNameEntry.LEAVE)
+"""Collect data: get back into a stage as fast as the game allows.
+
+A record the run reached is not worth stopping for here - what the game writes is
+its own default name - so this walks the name entry out and takes the next run."""
 
 EVAL_PRESET = Settings()
 """Watch a run: stop at the ending and leave it on screen."""
@@ -165,9 +188,10 @@ class Th10Env:
         """Starts an episode, clearing or restarting whatever ended before it.
 
         An ending that is on screen before the first episode is left over from an
-        earlier attempt, so it is always cleared - one `<Z>`, not a choice. An
-        ending this environment produced is different: OnDeath.STOP leaves it
-        there, and reset() then refuses to start another run on top of it.
+        earlier attempt, so it is always cleared - `restart.leave_game_over()`
+        walks its menu back into a run. An ending this environment produced is
+        different: OnDeath.STOP leaves it there, and reset() then refuses to start
+        another run on top of it.
         """
         snapshot = self._look()
         if snapshot is not None and snapshot.game_over:
@@ -175,6 +199,10 @@ class Th10Env:
                 self.session.set_input(Action.NONE)
             if self._started and self.settings.on_death is not OnDeath.RESTART:
                 raise NotInStage("the run is over and OnDeath is STOP: restart it in the game")
+            # The sequence below presses keys, and a key only reaches the game while
+            # its window owns the foreground (docs/game-ui.md), so the focus is
+            # asked for before them rather than only with the episode's own keys.
+            self.session.focus()
             self._leave_game_over()
             snapshot = self._look()
         if snapshot is None or snapshot.game_over:
@@ -357,10 +385,38 @@ class Th10Env:
         self._stage_frames = stage_frames
 
     def _leave_game_over(self) -> None:
-        if self.session.record_broken():
-            if self.settings.on_name_entry is OnNameEntry.STOP:
-                raise NotInStage(
-                    "the run broke the record and OnNameEntry is STOP: the game is asking for a name"
+        """Clears whatever ended the run, whatever kind of ending it was.
+
+        The two endings wear the same stage family: a plain game over, which has no
+        menu of its own, and the Score Ranking name entry the game opens when the
+        run reached the difficulty's top ten. The high score is not what tells them
+        apart - it is a different and higher bar, tracked in a flag of its own - so
+        the screen is read instead: a name entry is walked here, under
+        `on_name_entry`, and an ending's own menu is left to the restart sequence.
+        A refusal that comes out of that sequence is this layer's own kind of "no":
+        the game ended up somewhere no key may be sent from.
+        """
+        while True:
+            if self.session.ui().screen is Screen.NAME_ENTRY:
+                if self.settings.on_name_entry is OnNameEntry.STOP:
+                    raise NotInStage(
+                        "the run reached the ranking and OnNameEntry is STOP: "
+                        "the game is waiting for a name"
+                    )
+                restart.leave_name_entry(
+                    self.session, timeout_s=self.settings.name_entry_timeout_s
                 )
-            restart.type_name(self.session)
-        restart.leave_game_over(self.session, timeout_s=self.settings.confirm_timeout_s)
+            try:
+                restart.leave_game_over(
+                    self.session, timeout_s=self.settings.confirm_timeout_s
+                )
+                return
+            except restart.NotAnEnding as misplaced:
+                # `game_over` becomes visible before the ranking has necessarily
+                # installed its name-entry UI object. If that transition finishes
+                # while leave_game_over() is looking for the ordinary ending menu,
+                # dispatch the newly visible screen instead of treating it as an
+                # unrelated menu. Any other refusal is still a hard boundary: it
+                # may be the title or a setup screen, where pressing on is unsafe.
+                if self.session.ui().screen is not Screen.NAME_ENTRY:
+                    raise NotInStage(str(misplaced)) from misplaced

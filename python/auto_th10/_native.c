@@ -73,6 +73,13 @@ static int raise_read_failure(const th10_read_failure *failure) {
                                failure->bytes_read);
 }
 
+static int raise_write_failure(const th10_write_failure *failure) {
+    return raise_windows_error(failure->win32_error,
+                               "WriteProcessMemory failed at %p: requested %zu bytes, wrote %zu",
+                               (void *)(uintptr_t)failure->address, failure->requested_size,
+                               failure->bytes_written);
+}
+
 static int raise_open_result(th10_open_result result) {
     switch (result.tag) {
         case TH10_OPEN_WINDOW_NOT_FOUND:
@@ -167,15 +174,31 @@ static int raise_snapshot_result(th10_snapshot_result result) {
     return -1;
 }
 
-static int raise_record_result(th10_record_result result) {
+static int raise_write_result(th10_write_result result) {
     switch (result.tag) {
-        case TH10_RECORD_INVALID_SESSION:
+        case TH10_WRITE_INVALID_SESSION:
+            /* Unreachable behind ensure_open(), like the same tag in every other
+             * mapping here: the tag means "no usable session", not "the binding
+             * and the core disagree". */
             PyErr_SetString(session_closed_error, "session is closed");
             break;
-        case TH10_RECORD_READ_FAILED:
+        case TH10_WRITE_UNSUPPORTED_SCREEN:
+            /* A stage keeps no cursor, and neither does a screen this binding has
+             * not measured: there is nothing here to move, and saying so is not an
+             * error in the caller's arguments. */
+            PyErr_SetString(PyExc_RuntimeError, "the screen the game is driving keeps no cursor");
+            break;
+        case TH10_WRITE_INVALID_ARGUMENT:
+            PyErr_Format(PyExc_ValueError, "entry %d is outside the cursor's range 0..%d",
+                         (int)result.value.invalid_argument.entry,
+                         (int)result.value.invalid_argument.count - 1);
+            break;
+        case TH10_WRITE_READ_FAILED:
             return raise_read_failure(&result.value.read_failed);
+        case TH10_WRITE_FAILED:
+            return raise_write_failure(&result.value.write_failed);
         default:
-            PyErr_SetString(PyExc_SystemError, "invalid th10_read_record_broken result");
+            PyErr_SetString(PyExc_SystemError, "invalid th10_write_ui_cursor result");
             break;
     }
     return -1;
@@ -532,22 +555,68 @@ static PyObject *session_scene(py_th10_session *self, PyObject *ignored) {
     return PyUnicode_FromString(names[(unsigned int)scene]);
 }
 
-static PyObject *session_record_broken(py_th10_session *self, PyObject *ignored) {
-    th10_record_result result;
+static PyObject *session_set_ui_cursor(py_th10_session *self, PyObject *argument) {
+    th10_write_result result;
+    const long entry = PyLong_AsLong(argument);
+
+    if (entry == -1 && PyErr_Occurred()) {
+        return NULL;
+    }
+    if (ensure_open(self) < 0) {
+        return NULL;
+    }
+    result = th10_write_ui_cursor(self->session, (int32_t)entry);
+    if (result.tag != TH10_WRITE_SUCCESS) {
+        raise_write_result(result);
+        return NULL;
+    }
+    /* What the game reports afterwards, which is not always what was asked for. */
+    return PyLong_FromLong((long)result.value.cursor);
+}
+
+static int raise_ui_result(th10_ui_result result) {
+    switch (result.tag) {
+        case TH10_UI_INVALID_SESSION:
+            /* Unreachable behind ensure_open(), like the same tag in every other
+             * mapping here: the tag means "no usable session", not "the binding
+             * and the core disagree". */
+            PyErr_SetString(session_closed_error, "session is closed");
+            break;
+        case TH10_UI_READ_FAILED:
+            return raise_read_failure(&result.value.read_failed);
+        default:
+            PyErr_SetString(PyExc_SystemError, "invalid th10_read_ui result");
+            break;
+    }
+    return -1;
+}
+
+static PyObject *session_ui(py_th10_session *self, PyObject *ignored) {
+    static const char *names[] = {
+        "TH10_UI_SCREEN_UNKNOWN",
+        "TH10_UI_SCREEN_STAGE",
+        "TH10_UI_SCREEN_MENU",
+        "TH10_UI_SCREEN_NAME_ENTRY",
+    };
+    th10_ui_result result;
     (void)ignored;
 
     if (ensure_open(self) < 0) {
         return NULL;
     }
-    result = th10_read_record_broken(self->session);
-    if (result.tag != TH10_RECORD_SUCCESS) {
-        raise_record_result(result);
+    result = th10_read_ui(self->session);
+    if (result.tag != TH10_UI_SUCCESS) {
+        raise_ui_result(result);
         return NULL;
     }
-    if (result.value.broken) {
-        Py_RETURN_TRUE;
+    if ((unsigned int)result.value.ui.screen >= sizeof(names) / sizeof(names[0])) {
+        /* A screen outside the enumeration means the C header and this table
+         * disagree, which is a bug here, not a game state. */
+        PyErr_SetString(PyExc_SystemError, "invalid th10_read_ui result");
+        return NULL;
     }
-    Py_RETURN_FALSE;
+    return Py_BuildValue(
+        "(si)", names[(unsigned int)result.value.ui.screen], (int)result.value.ui.cursor);
 }
 
 static PyObject *session_stage_frames(py_th10_session *self, PyObject *ignored) {
@@ -605,8 +674,10 @@ static PyMethodDef session_methods[] = {
     {"snapshot", (PyCFunction)session_snapshot, METH_NOARGS, "Read one complete gameplay snapshot."},
     {"scene", (PyCFunction)session_scene, METH_NOARGS,
      "Report the screen family: TH10_SCENE_MENU / STAGE / UNKNOWN. One read, no wait."},
-    {"record_broken", (PyCFunction)session_record_broken, METH_NOARGS,
-     "Report whether the run set a new high score, so a restart owes a name entry."},
+    {"ui", (PyCFunction)session_ui, METH_NOARGS,
+     "Report the screen the game is driving and its cursor as (screen, cursor)."},
+    {"set_ui_cursor", (PyCFunction)session_set_ui_cursor, METH_O,
+     "Move that screen's cursor without a key press; returns what the game reports."},
     {"stage_frames", (PyCFunction)session_stage_frames, METH_NOARGS,
      "Read the stage frame counter: advances while playing, freezes while paused."},
     {"capture", (PyCFunction)session_capture, METH_O,

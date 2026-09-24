@@ -269,6 +269,19 @@ typedef struct th10_read_failure {
 } th10_read_failure;
 
 /**
+ * @brief The address a write targeted and why it did not take.
+ *
+ * The write-side twin of th10_read_failure, and it carries the same fields so a
+ * caller can decode both the same way.
+ */
+typedef struct th10_write_failure {
+    uintptr_t address; /**< the address the write was aimed at */
+    size_t requested_size; /**< how many bytes were to be written */
+    size_t bytes_written; /**< how many bytes WriteProcessMemory() reported */
+    uint32_t win32_error; /**< GetLastError() of the failed write; 0 when it never started */
+} th10_write_failure;
+
+/**
  * @brief The outcome of th10_read_snapshot().
  *
  * @c value carries the member @c tag names, and is only meaningful for that tag.
@@ -492,42 +505,127 @@ typedef enum th10_state {
  */
 th10_state th10_read_state(th10_session *session);
 
-/** @brief Why th10_read_record_broken() returned what it did. */
-typedef enum th10_record_result_tag {
-    TH10_RECORD_SUCCESS = 0, /**< the flag was read; see value.broken */
-    TH10_RECORD_INVALID_SESSION, /**< the session is NULL or already closed */
-    TH10_RECORD_READ_FAILED /**< the event flag word could not be read; see value.read_failed */
-} th10_record_result_tag;
+/** @brief Why th10_read_ui() returned what it did. */
+typedef enum th10_ui_result_tag {
+    TH10_UI_SUCCESS = 0, /**< the object was read; see value.ui */
+    TH10_UI_INVALID_SESSION, /**< the session is NULL or already closed */
+    TH10_UI_READ_FAILED /**< the game's UI object could not be read; see value.read_failed */
+} th10_ui_result_tag;
 
-/** @brief The outcome of th10_read_record_broken(). */
-typedef struct th10_record_result {
-    th10_record_result_tag tag;
+/** @brief Which screen the game is driving, as it records it itself. */
+typedef enum th10_ui_screen {
+    TH10_UI_SCREEN_UNKNOWN = 0, /**< the id is none of the ones below */
+    TH10_UI_SCREEN_STAGE, /**< a stage is the active object: playing and over alike */
+    TH10_UI_SCREEN_MENU, /**< a menu is up; measured on the ending's menu */
+    TH10_UI_SCREEN_NAME_ENTRY /**< the Score Ranking name entry is waiting for a name */
+} th10_ui_screen;
+
+/** @brief The screen the game is driving, with the cursor that screen keeps. */
+typedef struct th10_ui {
+    th10_ui_screen screen; /**< one of TH10_UI_SCREEN_*, or UNKNOWN for an unlisted id */
+    int32_t cursor; /**< the highlighted entry: the menu's (0..2) on
+                     *   TH10_UI_SCREEN_MENU, the name entry's grid cell (0..90) on
+                     *   TH10_UI_SCREEN_NAME_ENTRY. A stage keeps neither, so this
+                     *   is then whatever the screen last left behind and means
+                     *   nothing. */
+} th10_ui;
+
+/** @brief The outcome of th10_read_ui(). */
+typedef struct th10_ui_result {
+    th10_ui_result_tag tag;
     union {
-        bool broken; /**< whether the high score was broken; valid on success */
+        th10_ui ui; /**< the screen and its cursor; valid on success */
         th10_read_failure read_failed; /**< the read that failed */
     } value;
-} th10_record_result;
+} th10_ui_result;
 
 /**
- * @brief Reports whether the run that just ended set a new high score.
+ * @brief Reads which screen the game is driving, and that screen's cursor.
  *
- * This is what decides how a restart has to be driven. The game keeps the answer
- * in one bit of its event flag word (0x00474CA0, bit 2): it raises the bit the
- * moment the score climbs past the high score at 0x00474C40, so the bit is set
- * well before the run is over and stays set while the game waits for a name.
- * Screens cannot tell the two endings apart - a plain game over and the name
- * entry both run inside screen family 0x7 with no other tell - so this bit is
- * the only signal available. After TH10_STATE_GAME_OVER, a set bit means the
- * game is asking for a name and the caller has to type one, while a clear bit
- * means confirming the game over menu is enough.
+ * The screen id and the cursor are fields of one object the game points at from
+ * 0x00477830, and that object is what the menus and the name entry drive
+ * themselves through - unlike the run's own numbers, this state lives in the
+ * object rather than in static data, so the read is a pointer chase:
+ *
+ *   +0x04   screen id: 6 a stage, 8 a menu, 12 the Score Ranking name entry
+ *   +0x24   the menu's highlighted entry, 0..2
+ *   +0xFC   the name entry's highlighted grid cell, 0..90
+ *
+ * The three ids and both cursors were measured against th10.exe 1.00a by
+ * pressing one arrow key at a time on each screen and diffing the game's
+ * committed memory around the press; the object pointer itself moved as the
+ * game changed screens, which is why the id has to be read before the cursors.
+ *
+ * This is the read that tells the two endings apart. A plain game over and the
+ * name entry look the same through everything else the binding exposes - both
+ * are screen family 0x7 with the run over - so a driver that has to leave an
+ * ending has to ask this one first.
  *
  * @param session The session from th10_open().
- * @return TH10_RECORD_SUCCESS with the flag in value.broken, or the reason the
- *         flag could not be read. A caller must not treat a read failure as a
- *         clear flag: sending confirmation into an unknown ending could type
- *         into the name-entry screen.
+ * @return TH10_UI_SUCCESS with the screen and its cursor in value.ui, or the
+ *         reason the object could not be read.
+ *
+ * @note TH10_UI_SCREEN_UNKNOWN is a normal answer, not a failure: it means the
+ *       game is on a screen this binding has not measured. A caller must not
+ *       treat it as "a stage".
  */
-th10_record_result th10_read_record_broken(th10_session *session);
+th10_ui_result th10_read_ui(th10_session *session);
+
+/** @brief Why th10_write_ui_cursor() returned what it did. */
+typedef enum th10_write_result_tag {
+    TH10_WRITE_SUCCESS = 0, /**< the cursor was written and read back; see value.cursor */
+    TH10_WRITE_INVALID_SESSION, /**< the session is NULL or already closed */
+    TH10_WRITE_UNSUPPORTED_SCREEN, /**< the screen the game is driving keeps no cursor */
+    TH10_WRITE_INVALID_ARGUMENT, /**< the entry is outside that screen's list */
+    TH10_WRITE_READ_FAILED, /**< the screen could not be read; see value.read_failed */
+    TH10_WRITE_FAILED /**< the cursor could not be written; see value.write_failed */
+} th10_write_result_tag;
+
+/** @brief The outcome of th10_write_ui_cursor(). */
+typedef struct th10_write_result {
+    th10_write_result_tag tag;
+    union {
+        int32_t cursor; /**< what the game reports after the write; valid on success */
+        th10_read_failure read_failed; /**< the read that failed */
+        th10_write_failure write_failed; /**< the write that failed */
+        struct {
+            int32_t entry; /**< the entry that was asked for */
+            int32_t count; /**< how many entries that screen's cursor has */
+        } invalid_argument; /**< an entry the screen does not have */
+    } value;
+} th10_write_result;
+
+/**
+ * @brief Moves the cursor of the screen the game is driving, without pressing a key.
+ *
+ * This is the write side of th10_read_ui(), and it exists for the same reason the
+ * read does: a screen's cursor is state the game keeps, and every screen is left
+ * by putting that cursor somewhere and confirming. Reaching a cell by pressing a
+ * direction is a loop - one press, one read, repeat - where the same thing can be
+ * asked for in one step, and the presses are the part that goes wrong when the
+ * window loses the foreground.
+ *
+ * What it changes is the field the game itself moves when a key arrives, at the
+ * same address the read reports it from, so nothing about the game's own state is
+ * touched: no score, no run, no record. Both copies of the value are written when
+ * a screen keeps two - the game maintains each pair in step - and the result is
+ * read back, so `value.cursor` is the game's answer rather than the request.
+ *
+ * A screen that keeps no cursor refuses rather than guessing: a stage and a screen
+ * this binding has not measured are both TH10_WRITE_UNSUPPORTED_SCREEN.
+ *
+ * @param session The session from th10_open().
+ * @param entry The cursor to select: the menu's entry (0..2, `Continue` first) on
+ *              TH10_UI_SCREEN_MENU, the grid cell (0..90, `終` last) on
+ *              TH10_UI_SCREEN_NAME_ENTRY.
+ * @return TH10_WRITE_SUCCESS with the cursor the game reports, or the reason it
+ *         could not be moved.
+ *
+ * @note Confirming is still a key press: this only puts the highlight where a
+ *       press would have put it. A caller that wants the screen gone sends its
+ *       confirm afterwards.
+ */
+th10_write_result th10_write_ui_cursor(th10_session *session, int32_t entry);
 
 /** @brief Why th10_read_stage_frames() returned what it did. */
 typedef enum th10_frames_result_tag {

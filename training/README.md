@@ -43,10 +43,15 @@ again in the sources:
   traps that come with them (a neighbour word that looks like the screen family,
   a high score that follows the current one) are documented in `src/internal.h`
   and in the public header.
-- A plain game over and the name entry a broken record gets cannot be told apart
-  from the screen, so the episode lifecycle asks `record_broken()` instead. Its
-  tagged C result keeps a read failure distinct from a clear flag, because an
-  unknown ending must not be confirmed as though no name were due.
+- A plain game over and the ranking's name entry look alike on screen, so the
+  episode lifecycle asks the game which screen it is driving instead of guessing:
+  `Session.ui()` names it and hands back that screen's cursor. That cursor is also
+  writable (`Session.set_ui_cursor()`), which is what turns leaving the name entry
+  from eighteen key presses into one step and a confirm.
+- The high score is what the game tracks in a flag of its own, and reading that flag
+  as "a name is due" is exactly what walked a restart into the name entry: the
+  ranking takes runs the high score does not, so the flag was clear while the game
+  waited for a name. The flag is no longer read at all.
 - Failures and answers are told apart at the binding rather than here: a snapshot
   read that fails because no stage is loaded raises `GameplayNotActive`, a closed
   session raises `SessionClosedError`, and a tag the binding does not know raises
@@ -63,8 +68,8 @@ the binding, because the episode lifecycle is what calls them.
 
 | Transition | Keys | Status |
 | --- | --- | --- |
-| Game over, no record, into a new run | `<Z>` on the default entry | verified; implemented in `restart.leave_game_over()` |
-| Name entry, out of it | arrows to pick, `<Z>` to accept | **not yet explored**; `restart.type_name()` raises, so `OnNameEntry.TYPE` is unusable |
+| Game over, no record, into a new run | open the ending's menu, write the cursor onto 継続する, `<Z>` | implemented in `restart.leave_game_over()`; the entry is read before it is confirmed |
+| Name entry, out of it | write the cursor onto 終, `<Z>` | implemented in `restart.leave_name_entry()`; `OnNameEntry.LEAVE` does it, `STOP` refuses |
 | Title into a stage | `<Z>` through the menus | not implemented on purpose: entering a stage stays with the player |
 | Cold start into a stage | launch, wait out the ~15 s logo, then the above | `th10ctl launch` starts the game; the stage is entered by hand |
 
@@ -74,21 +79,44 @@ and a wrong guess lands in a shot type or a difficulty nobody chose. The
 environment therefore refuses to run anywhere but in a playing stage, raising
 `NotInStage` for the menu, the pause menu and an unknown screen.
 
+The game over menu is walked for the same reason. Its cursor opens on
+`Quit and Return to Select`, so a driver that only keeps pressing `<Z>` retreats to
+the title and then has to walk RANK, PLAYER SELECT and WEAPON SELECT to get back
+into a run - the three screens this layer has no business choosing on. The
+sequence moves onto `継続する` instead, which starts the next run on the spot with
+the difficulty and the character already chosen, and it finds that entry by
+reading the cursor rather than by counting presses from where it expects the
+cursor to be. A game that does end up at the title is refused rather than pressed
+on from: the entry one press away from that path is the replay-save list, whose
+name entry has no scripted way out (`docs/game-ui.md`).
+
+The name entry behind the same ending is the case that was left open for a long
+time, and what closed it was reading the cursor instead of counting presses: the
+screen is a grid the game lays out 13 cells per row, `終` is its last cell, and its
+cursor can be written directly. `restart.leave_name_entry()` writes and verifies
+that cell before it confirms, which records the name the game already holds - nothing
+types into the grid - and puts the ending's menu back with its cursor on
+`継続する`, ready for the sequence above. What the grid is *not* used for is
+choosing a name: `OnNameEntry.LEAVE` answers the ranking, and a caller that wants
+its own name has to say so in the game by hand.
+
 A game over is the exception, and only when it was already on screen before the
-first episode: that ending was left there by an earlier attempt, and clearing it
-is one `<Z>` rather than a choice, so `reset()` does it under any settings. An
-ending the environment produced itself is a different matter - `OnDeath.STOP`
-leaves it alone. That is why one episode keeps its ending on screen while several
-restart between them, which is what `Settings.for_episodes()` decides.
+first episode: that ending was left there by an earlier attempt, and clearing it is
+a fixed sequence of presses rather than a choice, so `reset()` does it under any
+settings. An ending the environment produced itself is a different matter -
+`OnDeath.STOP` leaves it alone. That is why one episode keeps its ending on screen
+while several restart between them, which is what `Settings.for_episodes()` decides.
 
 A run continues across its stage-loading screens. The game's frame counter can
 change before the next stage object is ready, so `step()` releases the current
 keys and waits up to `transition_timeout_s` for a readable snapshot instead of
 ending the episode. A real menu is still refused immediately.
 
-The name entry row is the one real unknown left, and it is the one the whole flag
-detour was for. It needs a session against the game to pin down: how many
-characters it wants, and whether it can be skipped.
+The name entry row used to be the unknown this layer stopped on, and the flag
+detour described above was an attempt to answer it from the wrong signal. It is
+measured now (`docs/game-ui.md`): the grid is 13 cells per row, `終` is its last
+cell, and the cursor is readable, which is all a sequence needs to walk it. What is
+still not modelled is the name itself - nothing types into the grid.
 
 ## The evasive policy
 
@@ -154,7 +182,7 @@ pixi run python -m training.collect --out runs/first.jsonl
 - `training/collect.py` - writes those transitions as JSONL rows under `runs/`.
 - `training/train.py` - a stub: nothing here trains a model yet.
 
-Open: the name entry sequence above, tuning against a real stage - the entry
-points run, but nothing here has been tuned with the game in front of it, and
-`BULLET_LEAD` and the laser box are still guesses - and a model, which swaps in
+Open: tuning against a real stage - the entry points run, but nothing here has been
+tuned with the game in front of it, and `BULLET_LEAD` and the laser box are still
+guesses - a name of its own for a record worth keeping, and a model, which swaps in
 behind `Policy` without the loop noticing.

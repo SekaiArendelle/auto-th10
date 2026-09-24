@@ -14,8 +14,9 @@
  * called so the module - and the exception objects the mapping uses - exist the
  * way CPython creates them.
  *
- * Only session_scene()'s unknown-scene error is left out: reaching it needs a
- * live Session. */
+ * Only two checks are left out, and both need a live Session rather than a
+ * hand-built result: session_scene()'s unknown-scene error and session_ui()'s
+ * unknown-screen one. */
 #include "../../python/auto_th10/_native.c"
 
 #include <stdio.h>
@@ -299,19 +300,50 @@ int main(void) {
     RAISE(raise_snapshot_result((th10_snapshot_result){.tag = (th10_snapshot_result_tag)999}));
     check_exception(PyExc_SystemError, "snapshot: an unknown tag is a binding bug");
 
-    /* th10_read_record_broken() */
-    RAISE(raise_record_result((th10_record_result){.tag = TH10_RECORD_INVALID_SESSION}));
-    check_exception(session_closed_error, "record: the session is closed");
-    RAISE(raise_record_result((th10_record_result){
-        .tag = TH10_RECORD_READ_FAILED,
-        .value.read_failed = {.address = 0x4A9F8Cu,
+    /* th10_write_ui_cursor() */
+    RAISE(raise_write_result((th10_write_result){.tag = TH10_WRITE_INVALID_SESSION}));
+    check_exception(session_closed_error, "write: the session is closed");
+    RAISE(raise_write_result((th10_write_result){.tag = TH10_WRITE_UNSUPPORTED_SCREEN}));
+    check_exception(PyExc_RuntimeError, "write: a screen with no cursor is not an argument error");
+    RAISE(raise_write_result((th10_write_result){
+        .tag = TH10_WRITE_INVALID_ARGUMENT,
+        .value.invalid_argument = {.entry = 91, .count = 91},
+    }));
+    check_exception(PyExc_ValueError, "write: an entry outside the list is a ValueError");
+    check_message(PyExc_ValueError, "0..90", "write: the range it has is named");
+    RAISE(raise_write_result((th10_write_result){
+        .tag = TH10_WRITE_READ_FAILED,
+        .value.read_failed = {.address = 0x477830u,
                               .requested_size = 4,
                               .bytes_read = 0,
                               .win32_error = 299},
     }));
-    check_attribute(PyExc_OSError, "winerror", "299", "record: a failed read is not a clear flag");
-    RAISE(raise_record_result((th10_record_result){.tag = (th10_record_result_tag)999}));
-    check_exception(PyExc_SystemError, "record: an unknown tag is a binding bug");
+    check_attribute(PyExc_OSError, "winerror", "299", "write: a failed read carries the code");
+    RAISE(raise_write_result((th10_write_result){
+        .tag = TH10_WRITE_FAILED,
+        .value.write_failed = {.address = 0xA8334ECu,
+                               .requested_size = 4,
+                               .bytes_written = 0,
+                               .win32_error = 5},
+    }));
+    check_attribute(PyExc_OSError, "winerror", "5", "write: a failed write carries the code");
+    check_message(PyExc_OSError, "WriteProcessMemory", "write: the failed call is named");
+    RAISE(raise_write_result((th10_write_result){.tag = (th10_write_result_tag)999}));
+    check_exception(PyExc_SystemError, "write: an unknown tag is a binding bug");
+
+    /* th10_read_ui() */
+    RAISE(raise_ui_result((th10_ui_result){.tag = TH10_UI_INVALID_SESSION}));
+    check_exception(session_closed_error, "ui: the session is closed");
+    RAISE(raise_ui_result((th10_ui_result){
+        .tag = TH10_UI_READ_FAILED,
+        .value.read_failed = {.address = 0x477830u,
+                              .requested_size = 4,
+                              .bytes_read = 0,
+                              .win32_error = 299},
+    }));
+    check_attribute(PyExc_OSError, "winerror", "299", "ui: a failed read carries the code");
+    RAISE(raise_ui_result((th10_ui_result){.tag = (th10_ui_result_tag)999}));
+    check_exception(PyExc_SystemError, "ui: an unknown tag is a binding bug");
 
     /* th10_read_stage_frames() */
     RAISE(raise_frames_result((th10_frames_result){

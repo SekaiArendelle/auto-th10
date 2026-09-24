@@ -11,9 +11,6 @@ enum {
     /* Long enough for a running stage to have advanced by several frames, short
      * enough that both reads still describe the same moment. */
     STATE_SAMPLE_INTERVAL_MS = 120,
-    /* Raised by the game the moment the score passes the high score, so it
-     * says the run that just ended is owed a name entry. */
-    FLAG_RECORD_BROKEN = 0x4u,
 };
 
 /* The screen family, as one read and nothing more. It answers "menu or stage" and
@@ -79,25 +76,6 @@ th10_state th10_read_state(th10_session *session) {
     return frames_earlier != frames_later ? TH10_STATE_PLAYING : TH10_STATE_PAUSED;
 }
 
-th10_record_result th10_read_record_broken(th10_session *session) {
-    th10_read_failure failure;
-    uint32_t flags = 0;
-
-    if (session == NULL) {
-        return (th10_record_result){.tag = TH10_RECORD_INVALID_SESSION};
-    }
-    if (!th10_read_memory(session, TH10_FLAGS_ADDRESS, &flags, sizeof(flags), &failure)) {
-        return (th10_record_result){
-            .tag = TH10_RECORD_READ_FAILED,
-            .value.read_failed = failure,
-        };
-    }
-    return (th10_record_result){
-        .tag = TH10_RECORD_SUCCESS,
-        .value.broken = (flags & FLAG_RECORD_BROKEN) != 0,
-    };
-}
-
 /* The word th10_read_state() samples twice to separate playing from paused,
  * exposed on its own so that a caller can wait for the game to advance without
  * paying that built-in 120 ms. */
@@ -118,4 +96,157 @@ th10_frames_result th10_read_stage_frames(th10_session *session) {
         .tag = TH10_FRAMES_SUCCESS,
         .value.frames = frames,
     };
+}
+
+/* Fields of the object the game hangs off TH10_UI_OBJECT_ADDRESS. See the note
+ * next to that address for how each one was measured. */
+enum {
+    UI_SCREEN_OFFSET = 0x04u,
+    /* Each cursor is kept twice, a word apart: the game writes the pair in step
+     * and which of the two it reads back is not known, so both are written. */
+    UI_MENU_CURSOR_OFFSET = 0x24u,
+    UI_MENU_CURSOR_TWIN_OFFSET = 0x28u,
+    UI_NAME_CURSOR_OFFSET = 0xFCu,
+    UI_NAME_CURSOR_TWIN_OFFSET = 0x100u,
+    UI_SCREEN_STAGE = 6,
+    UI_SCREEN_MENU = 8,
+    UI_SCREEN_NAME_ENTRY = 12,
+    /* How many entries each screen's cursor runs over. The grid's count is 91
+     * rather than 7 rows of 13 because its last row is full: cell 90 is `終`. */
+    UI_MENU_ENTRY_COUNT = 3,
+    UI_NAME_ENTRY_CELL_COUNT = 91,
+};
+
+static th10_ui_screen ui_screen_from_id(uint32_t id) {
+    switch (id) {
+    case UI_SCREEN_STAGE:
+        return TH10_UI_SCREEN_STAGE;
+    case UI_SCREEN_MENU:
+        return TH10_UI_SCREEN_MENU;
+    case UI_SCREEN_NAME_ENTRY:
+        return TH10_UI_SCREEN_NAME_ENTRY;
+    default:
+        return TH10_UI_SCREEN_UNKNOWN;
+    }
+}
+
+th10_ui_result th10_read_ui(th10_session *session) {
+    th10_read_failure failure;
+    th10_ui_result result;
+    uint32_t object = 0;
+    uint32_t screen_id = 0;
+    uint32_t cursor = 0;
+    uintptr_t cursor_offset;
+
+    if (session == NULL) {
+        return (th10_ui_result){.tag = TH10_UI_INVALID_SESSION};
+    }
+
+    /* The object pointer moves as the game changes screen, so it is read on
+     * every call rather than kept. A null pointer is not an error: it is the
+     * game before it built its first screen, which is the same answer as a
+     * screen this file has no id for. */
+    if (!th10_read_memory(session, TH10_UI_OBJECT_ADDRESS, &object, sizeof(object), &failure)) {
+        return (th10_ui_result){.tag = TH10_UI_READ_FAILED, .value.read_failed = failure};
+    }
+    result = (th10_ui_result){
+        .tag = TH10_UI_SUCCESS,
+        .value.ui = {.screen = TH10_UI_SCREEN_UNKNOWN, .cursor = 0},
+    };
+    if (object == 0) {
+        return result;
+    }
+    if (!th10_read_memory(session, (uintptr_t)object + UI_SCREEN_OFFSET, &screen_id,
+                          sizeof(screen_id), &failure)) {
+        return (th10_ui_result){.tag = TH10_UI_READ_FAILED, .value.read_failed = failure};
+    }
+    result.value.ui.screen = ui_screen_from_id(screen_id);
+
+    /* Only the two screens that keep a cursor have one; a stage answers 0, which
+     * is what its own fields happen to hold and not an entry. */
+    switch (result.value.ui.screen) {
+    case TH10_UI_SCREEN_MENU:
+        cursor_offset = UI_MENU_CURSOR_OFFSET;
+        break;
+    case TH10_UI_SCREEN_NAME_ENTRY:
+        cursor_offset = UI_NAME_CURSOR_OFFSET;
+        break;
+    default:
+        return result;
+    }
+    if (!th10_read_memory(session, (uintptr_t)object + cursor_offset, &cursor, sizeof(cursor),
+                          &failure)) {
+        return (th10_ui_result){.tag = TH10_UI_READ_FAILED, .value.read_failed = failure};
+    }
+    result.value.ui.cursor = (int32_t)cursor;
+    return result;
+}
+
+th10_write_result th10_write_ui_cursor(th10_session *session, int32_t entry) {
+    th10_read_failure read_failure;
+    th10_write_failure write_failure;
+    th10_write_result result;
+    uint32_t object = 0;
+    uint32_t screen_id = 0;
+    uintptr_t cursor_address;
+    uintptr_t twin_address;
+    int32_t count;
+    int32_t reported = 0;
+    int32_t value = entry;
+
+    if (session == NULL) {
+        return (th10_write_result){.tag = TH10_WRITE_INVALID_SESSION};
+    }
+    if (!th10_read_memory(session, TH10_UI_OBJECT_ADDRESS, &object, sizeof(object), &read_failure)) {
+        return (th10_write_result){.tag = TH10_WRITE_READ_FAILED,
+                                   .value.read_failed = read_failure};
+    }
+    if (object == 0) {
+        /* No screen object yet, which is the same answer as a screen with no
+         * cursor: there is nothing here to move. */
+        return (th10_write_result){.tag = TH10_WRITE_UNSUPPORTED_SCREEN};
+    }
+    if (!th10_read_memory(session, (uintptr_t)object + UI_SCREEN_OFFSET, &screen_id,
+                          sizeof(screen_id), &read_failure)) {
+        return (th10_write_result){.tag = TH10_WRITE_READ_FAILED,
+                                   .value.read_failed = read_failure};
+    }
+
+    switch (ui_screen_from_id(screen_id)) {
+    case TH10_UI_SCREEN_MENU:
+        cursor_address = (uintptr_t)object + UI_MENU_CURSOR_OFFSET;
+        twin_address = (uintptr_t)object + UI_MENU_CURSOR_TWIN_OFFSET;
+        count = UI_MENU_ENTRY_COUNT;
+        break;
+    case TH10_UI_SCREEN_NAME_ENTRY:
+        cursor_address = (uintptr_t)object + UI_NAME_CURSOR_OFFSET;
+        twin_address = (uintptr_t)object + UI_NAME_CURSOR_TWIN_OFFSET;
+        count = UI_NAME_ENTRY_CELL_COUNT;
+        break;
+    default:
+        return (th10_write_result){.tag = TH10_WRITE_UNSUPPORTED_SCREEN};
+    }
+
+    if (entry < 0 || entry >= count) {
+        return (th10_write_result){
+            .tag = TH10_WRITE_INVALID_ARGUMENT,
+            .value.invalid_argument = {.entry = entry, .count = count},
+        };
+    }
+
+    if (!th10_write_memory(session, cursor_address, &value, sizeof(value), &write_failure) ||
+        !th10_write_memory(session, twin_address, &value, sizeof(value), &write_failure)) {
+        return (th10_write_result){.tag = TH10_WRITE_FAILED,
+                                   .value.write_failed = write_failure};
+    }
+    /* The answer is the game's own word rather than the request: a screen that
+     * puts its cursor back where it was has not moved, and a caller that reads
+     * this one back finds that out here rather than at its next press. */
+    if (!th10_read_memory(session, cursor_address, &reported, sizeof(reported), &read_failure)) {
+        return (th10_write_result){.tag = TH10_WRITE_READ_FAILED,
+                                   .value.read_failed = read_failure};
+    }
+    result = (th10_write_result){.tag = TH10_WRITE_SUCCESS};
+    result.value.cursor = reported;
+    return result;
 }

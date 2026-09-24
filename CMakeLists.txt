@@ -47,6 +47,7 @@ if(AUTO_TH10_BUILD_PYTHON)
     install(FILES
         python/auto_th10/__init__.py
         python/auto_th10/env.py
+        python/auto_th10/restart.py
         python/auto_th10/session.py
         python/auto_th10/types.py
         DESTINATION auto_th10
