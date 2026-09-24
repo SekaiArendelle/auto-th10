@@ -7,8 +7,6 @@ the memory snapshot.
 Rows go to runs/<timestamp>.jsonl; runs/ is ignored by Git.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import pathlib

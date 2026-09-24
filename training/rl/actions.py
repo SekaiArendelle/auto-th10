@@ -7,8 +7,6 @@ the caller because the first memory policy will hold it during combat and pulse
 it during dialogue rather than spend policy capacity learning that convention.
 """
 
-from __future__ import annotations
-
 import operator
 from dataclasses import dataclass
 

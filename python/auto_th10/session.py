@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 import os
-from enum import Enum, IntFlag
+from enum import IntFlag, StrEnum
 from types import TracebackType
 
 from . import _native
@@ -29,7 +27,7 @@ class Action(IntFlag):
     ESCAPE = _native.ESCAPE
 
 
-class Scene(str, Enum):
+class Scene(StrEnum):
     """The family of screen the game is on, straight from its own state word.
 
     One read of one word, with no waiting: it answers "a menu or a stage" and
@@ -38,9 +36,8 @@ class Scene(str, Enum):
     paused and over alike - and for anything past it, read `snapshot()` for the
     run's own numbers or `stage_frames()` twice for playing against paused.
 
-    Derives from str so a member compares equal to the raw name the C side
-    returns, without needing StrEnum (which would raise the project's Python
-    floor to 3.11).
+    A StrEnum, so a member compares equal to the raw name the C side returns
+    and prints as that name rather than as an enum literal.
     """
 
     UNKNOWN = "TH10_SCENE_UNKNOWN"
@@ -48,7 +45,7 @@ class Scene(str, Enum):
     STAGE = "TH10_SCENE_STAGE"
 
 
-class ScreenKind(str, Enum):
+class ScreenKind(StrEnum):
     """The kind of screen the game is driving, straight from the game's own id.
 
     This is finer than `Scene` and answers a different question. `Scene` says
@@ -62,9 +59,8 @@ class ScreenKind(str, Enum):
     nothing else an agent can see separates them, and a restart that guesses
     wrong types a name into the ranking.
 
-    Derives from str so a member compares equal to the raw name the C side
-    returns, without needing StrEnum (which would raise the project's Python
-    floor to 3.11).
+    A StrEnum, so a member compares equal to the raw name the C side returns
+    and prints as that name rather than as an enum literal.
     """
 
     UNKNOWN = "TH10_SCREEN_KIND_UNKNOWN"

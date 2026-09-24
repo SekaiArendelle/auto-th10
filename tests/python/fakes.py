@@ -5,8 +5,6 @@ anywhere. They live in their own module because both the environment tests and
 the restart tests need them.
 """
 
-from __future__ import annotations
-
 from auto_th10 import (
     Action,
     EnemyBullet,

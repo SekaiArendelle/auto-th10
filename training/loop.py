@@ -6,8 +6,6 @@ is what lets the same loop collect a dataset, score a policy, or follow a
 scripted player.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 

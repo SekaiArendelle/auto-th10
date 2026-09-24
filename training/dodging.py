@@ -13,8 +13,6 @@ the function it came from. Only the constants are borrowed; the search built on
 top of them differs, and `EvasivePolicy` says how.
 """
 
-from __future__ import annotations
-
 import math
 from collections.abc import Sequence
 

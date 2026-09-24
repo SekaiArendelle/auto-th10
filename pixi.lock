@@ -153,12 +153,12 @@ packages:
 - pypi: ./
   name: auto-th10
   version: 0.1.0
-  sha256: 332deb52c41f41a1e716410b777588691a0336b2d9aef4d93a5e9a33dd9c40e6
+  sha256: ef0d98e737d549276069271d837da1352d20bcd51852238e16eb3cefd0b64bc4
   requires_dist:
   - gymnasium>=1.0 ; extra == 'train'
-  - numpy>=2.0 ; extra == 'train'
-  - torch>=2.0 ; extra == 'train'
-  requires_python: '>=3.10'
+  - numpy>=2.3.2 ; extra == 'train'
+  - torch>=2.9 ; extra == 'train'
+  requires_python: '>=3.14'
 - conda: https://conda.anaconda.org/conda-forge/win-64/binutils_impl_win-64-2.46.1-default_ha84baeb_102.conda
   sha256: 83476bc3ed6ee4f1d6e67e6e1360696a0ac3e99679f9c142674003cf721740e3
   md5: 7832bada38267be3333319febcf5e4fc

@@ -5,8 +5,6 @@ runs is a script, so a score here belongs to the pipeline rather than to a model
 Start the game, enter a stage by hand, and run it.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import statistics

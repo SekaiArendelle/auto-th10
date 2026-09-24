@@ -1,7 +1,5 @@
 """Reward shaping over consecutive memory snapshots."""
 
-from __future__ import annotations
-
 import math
 import operator
 from dataclasses import dataclass

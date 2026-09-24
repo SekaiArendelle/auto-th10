@@ -10,8 +10,6 @@ instead of reacting to the nearest bullet, and the arithmetic it does that with
 lives in `dodging.py`, next to the reference each number came from.
 """
 
-from __future__ import annotations
-
 import random
 from collections.abc import Callable, Sequence
 from typing import Protocol

@@ -239,10 +239,17 @@ warning-free.
 
 ### Python conventions
 
-The Python floor is 3.10 (`pyproject.toml`), even though Pixi installs 3.14. Do not use anything newer than 3.10 —
-`StrEnum`, `typing.Self`, and `except*` are examples that would silently raise the floor.
+The Python floor is 3.14 (`pyproject.toml`), which is also what Pixi installs (`pixi.toml`), so the whole standard
+library is available — `StrEnum`, `typing.Self` and `except*` included, no shim needed. Nothing runs the suite on an
+older interpreter, so a lower floor would be an unverified claim rather than a supported one.
 
-- Start each module with `from __future__ import annotations` and annotate fully, including `-> None` return types.
+The floor reaches the `train` extra as well: `torch>=2.9` and `numpy>=2.3.2` are the first releases shipping `cp314`
+wheels, so lowering either pin would advertise an install that cannot resolve.
+
+- Annotate fully, including `-> None` return types. Do not add `from __future__ import annotations`: 3.14 evaluates
+  annotations lazily (PEP 649), which is what a forward reference needs, and it leaves them real objects instead of
+  strings. The price is that a reader may evaluate any annotation, so every name an annotation names has to exist at
+  runtime — do not import a name in an `if TYPE_CHECKING:` block just to annotate with it.
 - Value types are `@dataclass(frozen=True, slots=True)` (`python/auto_th10/types.py`). Keep them immutable.
 - Keep the layer thin and declarative: Win32 behavior belongs in C, and `session.py` should stay a named wrapper over
   `_native`. Anything that drives the game (the environment, the key sequences in `restart.py`) stays in
@@ -252,8 +259,8 @@ The Python floor is 3.10 (`pyproject.toml`), even though Pixi installs 3.14. Do 
   samples the frame counter twice); and `Th10Env` raises `NotInStage` rather than inject a key for a menu, the pause
   menu, an unknown screen, or an ending it is not allowed to leave. The one ending it does clear is one that was
   already on screen before the first episode, since that is left over from an earlier attempt.
-- Text-producing enums that mirror C constants derive from `str` rather than `StrEnum`, so a member compares equal to
-  the raw name the C side returns while still working on 3.10 (`State` in `session.py`).
+- Text-producing enums that mirror C constants derive from `StrEnum`, so a member compares equal to the raw name the C
+  side returns *and* prints as that name (`Scene` and `ScreenKind` in `session.py`).
 - Export public names explicitly through `__all__` in `python/auto_th10/__init__.py`.
 - Use `unittest`, not a third-party test framework: suites live in `tests/python/test_*.py` and are run with
   `python -m unittest discover -s tests/python` (which is what `pixi run test-python` does).

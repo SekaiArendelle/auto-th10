@@ -7,8 +7,6 @@ plain tuple rather than a NumPy array so the protocol and its tests do not make
 the project's base installation depend on the optional training stack.
 """
 
-from __future__ import annotations
-
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass

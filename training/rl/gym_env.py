@@ -5,8 +5,6 @@ NumPy are optional training dependencies, while the feature and action
 protocols remain usable by the base installation.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 
 import gymnasium as gym

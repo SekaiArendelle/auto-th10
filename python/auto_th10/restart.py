@@ -11,8 +11,6 @@ lets the game see each one as its own press, and there is nothing to observe abo
 a press that has not arrived yet.
 """
 
-from __future__ import annotations
-
 import time
 
 from .session import Action, GameplayNotActive, Scene, ScreenKind, Session

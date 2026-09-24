@@ -7,8 +7,6 @@ incompatible observation change introduces a new version rather than silently
 changing these rows.
 """
 
-from __future__ import annotations
-
 from auto_th10 import Snapshot
 
 from .loop import Step

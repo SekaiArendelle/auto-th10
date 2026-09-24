@@ -1,7 +1,5 @@
 """The fixed shooting rule shared by scripted and learned policies."""
 
-from __future__ import annotations
-
 from auto_th10 import Action, Snapshot
 
 DIALOGUE_BULLET_RADIUS = 33.0

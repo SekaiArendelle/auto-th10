@@ -15,8 +15,6 @@ word that used to stand in for all three is not even bound in Python - see
 See training/README.md for how the layers above this one fit together.
 """
 
-from __future__ import annotations
-
 import time
 from dataclasses import dataclass
 from enum import Enum, auto

@@ -7,11 +7,11 @@ name = "auto-th10"
 version = "0.1.0"
 description = "Windows interface and Python environment for Touhou 10 automation experiments"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 license = { file = "LICENSE" }
 
 [project.optional-dependencies]
-train = ["gymnasium>=1.0", "numpy>=2.0", "torch>=2.0"]
+train = ["gymnasium>=1.0", "numpy>=2.3.2", "torch>=2.9"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"
