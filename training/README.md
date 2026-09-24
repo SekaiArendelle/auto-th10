@@ -187,8 +187,38 @@ pixi run python -m training.collect --out runs/first.jsonl
   and a binary bomb choice. Shooting stays outside the learned action for now so
   combat can hold it and dialogue can pulse it without teaching the model that
   game-specific convention.
-- `training/train.py` - a stub: the observation and action protocols now exist,
-  but no model is trained yet.
+- `training/rl/rewards.py` - the first shaped reward: small survival progress,
+  clipped positive score progress, and explicit penalties for a lost life, a
+  bomb and game over. Every term remains visible in the step metadata so a
+  training run can show what the policy is actually optimizing.
+- `training/rl/gym_env.py` - the optional Gymnasium adapter. Its observation is
+  the bounded feature vector, its `MultiDiscrete([17, 2])` action is movement
+  plus bomb, and it releases held input whenever an episode terminates or is
+  truncated. It is deliberately not re-exported by `training.rl`, so importing
+  the protocols does not require the optional NumPy/Gymnasium stack.
+- `training/shooting.py` - the fixed combat/dialogue shooting rule shared by the
+  scripted baseline and the Gymnasium adapter.
+- `training/train.py` - a stub: the Gymnasium boundary is now ready, but the PPO
+  network, rollout buffer and optimizer have not been added yet.
+
+The adapter is constructed directly after installing the training extras:
+
+```python
+from training.rl.gym_env import MemoryGymEnv
+
+env = MemoryGymEnv(action_repeat=1, max_steps=60_000)
+observation, info = env.reset()
+```
+
+`pixi run test-training` installs the lightweight Gymnasium/NumPy part of those
+extras and runs the RL protocol, reward and adapter suites. It does not install
+PyTorch yet because no model code consumes it at this stage.
+
+`action_repeat` defaults to one because bullet avoidance needs frame-level
+control. `max_steps` counts model decisions rather than raw game frames; the
+`frames` and `delta_frames` info fields retain the actual stage-clock progress.
+The reward constants are starting scales, not tuned claims. Evaluation should
+continue reporting raw score and survived frames independently of shaped reward.
 
 Open: tuning against a real stage - the entry points run, but nothing here has been
 tuned with the game in front of it, and `BULLET_LEAD` and the laser box are still

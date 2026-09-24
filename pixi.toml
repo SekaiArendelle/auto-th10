@@ -21,4 +21,6 @@ configure-release = "cmake --preset release --fresh"
 build-release = { cmd = "cmake --build --preset release", depends-on = ["configure-release"] }
 install-python = { cmd = "python -m pip install --no-build-isolation -e .", depends-on = ["build-release"] }
 test-python = { cmd = "python -m unittest discover -s tests/python -v", depends-on = ["install-python"] }
-test = { depends-on = ["test-c", "test-python"] }
+install-training-tests = { cmd = ".pixi/envs/default/python.exe -m pip install \"gymnasium>=1.0\" \"numpy>=2.0\"", depends-on = ["install-python"] }
+test-training = { cmd = ".pixi/envs/default/python.exe -m unittest discover -s tests/python -p \"test_rl_*.py\" -v", depends-on = ["install-training-tests"] }
+test = { depends-on = ["test-c", "test-python", "test-training"] }
