@@ -18,6 +18,7 @@ torch = ">=2.9"
 tensorboard = ">=2.21"
 
 [tasks]
+python = ".pixi/envs/default/python.exe"
 configure = "cmake --preset dev --fresh"
 build = { cmd = "cmake --build --preset dev", depends-on = ["configure"] }
 test-c = { cmd = "ctest --preset dev", depends-on = ["build"] }
@@ -25,7 +26,7 @@ test-c = { cmd = "ctest --preset dev", depends-on = ["build"] }
 ctl = "build/dev/th10ctl.exe"
 configure-release = "cmake --preset release --fresh"
 build-release = { cmd = "cmake --build --preset release", depends-on = ["configure-release"] }
-test-python = "python -m unittest discover -s tests/python -v"
-test-training = "python -m unittest discover -s tests/python -p \"test_rl_*.py\" -v"
+test-python = ".pixi/envs/default/python.exe -m unittest discover -s tests/python -v"
+test-training = ".pixi/envs/default/python.exe -m unittest discover -s tests/python -p \"test_rl_*.py\" -v"
 tensorboard = "tensorboard"
 test = { depends-on = ["test-c", "test-python", "test-training"] }
