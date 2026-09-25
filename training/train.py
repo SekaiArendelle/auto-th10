@@ -1,9 +1,7 @@
 """Run online DAgger updates against a game already in a stage."""
 
 import argparse
-from dataclasses import asdict
 import math
-import os
 import pathlib
 import random
 import statistics
@@ -22,9 +20,9 @@ from .rl import (
     MemoryGymEnv,
     ModelSpec,
     run_dagger_iteration,
+    save_checkpoint,
 )
 
-CHECKPOINT_FORMAT_VERSION = 1
 DEFAULT_CHECKPOINT = pathlib.Path("runs/dagger.pt")
 
 
@@ -135,34 +133,6 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         env.close()
     return 0
-
-
-def save_checkpoint(
-    path: pathlib.Path,
-    *,
-    iteration: int,
-    beta: float,
-    feature_spec: FeatureSpec,
-    action_spec: ActionSpec,
-    model_spec: ModelSpec,
-    model: ActorCritic,
-    optimizer: torch.optim.Optimizer,
-) -> None:
-    """Atomically save weights plus the schemas needed to interpret them."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    payload = {
-        "format_version": CHECKPOINT_FORMAT_VERSION,
-        "iteration": iteration,
-        "beta": beta,
-        "feature_spec": asdict(feature_spec),
-        "action_spec": asdict(action_spec),
-        "model_spec": asdict(model_spec),
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-    }
-    torch.save(payload, temporary)
-    os.replace(temporary, path)
 
 
 def _report_iteration(

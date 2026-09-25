@@ -1,6 +1,13 @@
 """The memory-backed reinforcement-learning layer: the protocols and the adapter."""
 
 from .actions import ACTION_SCHEMA_VERSION, ActionSpec, ModelAction, decode_action, encode_action
+from .checkpoint import (
+    CHECKPOINT_FORMAT_VERSION,
+    CheckpointError,
+    LoadedCheckpoint,
+    load_checkpoint,
+    save_checkpoint,
+)
 from .dagger import (
     DaggerBuffer,
     DaggerIteration,
@@ -26,12 +33,14 @@ from .teacher import EvasiveTeacher, Teacher
 
 __all__ = [
     "ACTION_SCHEMA_VERSION",
+    "CHECKPOINT_FORMAT_VERSION",
     "FEATURE_SCHEMA_VERSION",
     "ActionSpec",
     "ActionEvaluation",
     "ActionSample",
     "ActorCritic",
     "ActorCriticOutput",
+    "CheckpointError",
     "DaggerBuffer",
     "DaggerIteration",
     "DaggerRollout",
@@ -46,6 +55,7 @@ __all__ = [
     "ImitationMetrics",
     "ImitationBatch",
     "Learner",
+    "LoadedCheckpoint",
     "RewardBreakdown",
     "RewardSpec",
     "Teacher",
@@ -53,7 +63,9 @@ __all__ = [
     "collect_dagger_rollout",
     "encode_action",
     "imitation_loss",
+    "load_checkpoint",
     "memory_reward",
     "run_dagger_iteration",
+    "save_checkpoint",
     "update_imitation",
 ]

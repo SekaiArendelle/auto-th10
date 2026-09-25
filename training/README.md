@@ -188,6 +188,7 @@ Both entry points expect a game that is already in a stage:
 pixi run python -m training.evaluate --episodes 3 --policy evasive
 pixi run python -m training.collect --out runs/first.jsonl
 pixi run python -m training.train --iterations 100
+pixi run python -m training.evaluate_model --checkpoint runs/dagger.pt
 ```
 
 - `training/policy.py` - `FixedPolicy`, `EvasivePolicy` and `RandomPolicy`,
@@ -215,6 +216,10 @@ pixi run python -m training.train --iterations 100
 - `training/rl/model.py` - one shared MLP trunk with independent 17-way movement,
   binary bomb and scalar value heads. Imitation trains the action heads; PPO can
   later train all three without changing the checkpoint shape.
+- `training/rl/checkpoint.py` - atomic checkpoint writes and strict loading. A
+  loader reconstructs all three specs from versioned metadata, verifies that the
+  feature size and weight shapes agree, and returns the optimizer state without
+  executing arbitrary checkpoint code.
 - `training/rl/imitation.py` - movement and bomb cross-entropy updates. Bomb
   positives are both sampled deliberately and weighted because the useful label
   is rare.
@@ -237,6 +242,15 @@ pixi run python -m training.train --iterations 100
 - `training/train.py` - the online DAgger entry point. It decays the probability
   of executing teacher actions and atomically writes model, optimizer and schema
   metadata to `runs/dagger.pt` after every iteration.
+- `training/evaluate_model.py` - deterministic checkpoint evaluation. The model
+  alone controls movement and bomb; the evasive teacher only labels those same
+  states so the report can include movement agreement and bomb precision/recall
+  beside score, survival frames and bomb count.
+
+`evaluate_model --max-steps` is a bounded single-episode diagnostic. It cannot be
+combined with multiple episodes: reaching that artificial limit releases input
+but does not end the physical run, so resetting model and teacher history there
+would mislabel a continuation as a fresh game.
 
 The adapter is constructed directly after installing the training extras:
 
@@ -283,8 +297,8 @@ to spend one. `reset()` clears the annotation pairing and state for a genuinely
 independent trajectory; a PPO rollout boundary in the middle of the same game
 must not call it.
 
-Open: tuning DAgger against a real stage; adding checkpoint resume and evaluation;
-then collecting advantages and adding PPO updates behind the existing value head.
-Nothing here has been tuned with the game in front of it, and `BULLET_LEAD` and the
-laser box are still guesses. A name of its own for a record worth keeping also
-remains outside the scripted lifecycle.
+Open: tuning DAgger against a real stage; restoring the aggregate buffer and RNG
+state for full training resume; then collecting advantages and adding PPO updates
+behind the existing value head. Nothing here has been tuned with the game in front
+of it, and `BULLET_LEAD` and the laser box are still guesses. A name of its own for
+a record worth keeping also remains outside the scripted lifecycle.
