@@ -107,6 +107,49 @@ class StageFramesTests(unittest.TestCase):
         self.assertEqual(fake.calls, 1)
 
 
+class BackgroundInputTests(unittest.TestCase):
+    def test_enables_backend_and_does_not_focus_the_window(self) -> None:
+        class FakeNativeSession:
+            def __init__(self) -> None:
+                self.enabled = 0
+                self.focused = 0
+
+            def enable_background_input(self) -> None:
+                self.enabled += 1
+
+            def focus(self) -> None:
+                self.focused += 1
+
+            def close(self) -> None:
+                pass
+
+        fake = FakeNativeSession()
+        with mock.patch.object(session_module._native, "Session", lambda: fake):
+            game = session_module.Session(background_input=True)
+            game.focus()
+
+        self.assertEqual(fake.enabled, 1)
+        self.assertEqual(fake.focused, 0)
+
+    def test_failed_enable_closes_the_native_session(self) -> None:
+        class FakeNativeSession:
+            def __init__(self) -> None:
+                self.closed = 0
+
+            def enable_background_input(self) -> None:
+                raise OSError("bridge failed")
+
+            def close(self) -> None:
+                self.closed += 1
+
+        fake = FakeNativeSession()
+        with mock.patch.object(session_module._native, "Session", lambda: fake):
+            with self.assertRaisesRegex(OSError, "bridge failed"):
+                session_module.Session(background_input=True)
+
+        self.assertEqual(fake.closed, 1)
+
+
 class ExceptionTests(unittest.TestCase):
     """The names the binding puts on the failures it reports.
 

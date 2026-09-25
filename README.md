@@ -68,12 +68,14 @@ Holding an action down is therefore one command:
 .\build\dev\th10ctl.exe watch 100 20            # 20 snapshots, 100 ms apart
 ```
 
-`hold` and `watch` take the keyboard focus first (see `th10_focus`): keys only
-reach a DirectInput game while its window owns the focus, and a tool started
-from a terminal does not own it. A Chinese IME sitting on the game's thread also
-swallows the character keys ('Z' and 'X') into a composition before the game can
-read them - the arrow keys and Shift pass through - so `th10_focus` detaches the
-window's input context and switches it to the neutral Latin layout.
+`hold` uses the opt-in background-input bridge. It does not foreground the game
+or send keys to the desktop: the bridge replaces the action word after the game
+has combined DirectInput and joystick state, before the original held/pressed/
+released and movement logic runs. Each update carries a 120-frame lease, so a
+controller that disappears falls back to physical input in about two seconds;
+normal close restores the original instructions immediately. Installation first
+checks the exact instruction bytes verified against `th10.exe` 1.00a and refuses
+another build instead of guessing.
 
 No command ever waits for input, so the tool is safe to call from a script:
 without a command it prints its usage, and `watch` reads 10 snapshots by default
@@ -93,8 +95,7 @@ The current memory layout uses the TH10 reverse-engineering results from the ori
 ```python
 from auto_th10 import Action, Session
 
-with Session() as game:
-    game.focus()
+with Session(background_input=True) as game:
     game.set_input(Action.SHOOT | Action.FOCUS)
     snapshot = game.snapshot()
     print(snapshot.player, len(snapshot.enemy_bullets))

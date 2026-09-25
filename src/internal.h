@@ -27,7 +27,14 @@ struct th10_session {
     DWORD process_id;
     DWORD thread_id;
     uint32_t action_mask;
+    LPVOID input_bridge_control;
+    LPVOID input_bridge_code;
+    bool input_bridge_installed;
+    bool input_bridge_allocations_retained;
 };
+
+/* Writes the bridge control block when background input is enabled. */
+th10_input_result th10_set_background_input(th10_session *session, uint32_t action_mask);
 
 /* Reads and reports whether it succeeded. Pass NULL for `failure` when only the
  * outcome matters; otherwise it is filled in with the address, the sizes and
@@ -92,5 +99,18 @@ static const uintptr_t TH10_BULLET_MANAGER_ADDRESS = 0x004776F0u;
 static const uintptr_t TH10_BULLET_FLAGS_ADDRESS = 0x00477810u;
 static const uintptr_t TH10_LASER_MANAGER_ADDRESS = 0x0047781Cu;
 static const uintptr_t TH10_RESOURCE_MANAGER_ADDRESS = 0x00477818u;
+
+/* The input reducer stores its final 16-bit action word at 0x0044A8C9. The
+ * eight bytes immediately before that store are `66 8b 0e bb 01 00 00 00`
+ * (`mov cx,[esi]`; `mov ebx,1`), and are the reversible patch site used by the
+ * background-input bridge. The address, bytes and the action word at
+ * 0x00474E30 were verified on 2026-09-25 by reading them from the running
+ * th10.exe 1.00a whose SHA-256 is
+ * 2F14760B6FBBF57549541583283BADB9A19A4222B90F0A146D5AA17F01DC9040. A
+ * 120-frame down lease then produced current/previous words 0x20/0x20 and a
+ * hold count of 6 at that structure, before the original bytes were restored.
+ * The bridge reproduces the two displaced instructions and returns at +8. */
+static const uintptr_t TH10_INPUT_PATCH_ADDRESS = 0x0044A8BDu;
+static const uintptr_t TH10_INPUT_PATCH_RETURN_ADDRESS = 0x0044A8C5u;
 
 #endif

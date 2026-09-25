@@ -122,6 +122,8 @@ static const char *input_tag_name(th10_input_result_tag tag) {
         RETURN_TAG_NAME(TH10_INPUT_INVALID_SESSION)
         RETURN_TAG_NAME(TH10_INPUT_UNSUPPORTED_ACTION)
         RETURN_TAG_NAME(TH10_INPUT_SEND_FAILED)
+        RETURN_TAG_NAME(TH10_INPUT_BRIDGE_INCOMPATIBLE)
+        RETURN_TAG_NAME(TH10_INPUT_BRIDGE_FAILED)
     }
     return "TH10_INPUT_UNKNOWN";
 }
@@ -940,21 +942,21 @@ static bool command_capture(const char *path) {
 
 static bool command_input(uint32_t *mask) {
     th10_input_result result;
-    th10_focus_result focus_result;
     char actions[128];
 
     if (!attach_session(ATTACH_NORMAL)) {
         return false;
     }
-    /* Keys only reach a DirectInput game while its window owns the keyboard
-     * focus. Injecting while the terminal is in front sends the keys to the
-     * terminal instead (the IME picks them up) and the game sees nothing. */
-    focus_result = th10_focus(g_session);
-    if (!report_focus(&focus_result)) {
-        return false;
+    /* The in-process bridge feeds the word after DirectInput and joystick state
+     * have been combined, so this command neither foregrounds the game nor sends
+     * keys to the desktop. Repeated calls keep the bridge and refresh its lease. */
+    result = th10_enable_background_input(g_session);
+    if (result.tag != TH10_INPUT_SUCCESS) {
+        goto input_failed;
     }
     result = th10_set_input(g_session, *mask);
     if (result.tag != TH10_INPUT_SUCCESS) {
+input_failed:
         if (g_json) {
             fputs("{\"error\":\"input\",\"tag\":\"", stderr);
             fputs(input_tag_name(result.tag), stderr);
@@ -969,6 +971,11 @@ static bool command_input(uint32_t *mask) {
                         (unsigned long)result.value.send_failed.inserted_count,
                         (unsigned long)result.value.send_failed.win32_error);
             }
+            if (result.tag == TH10_INPUT_BRIDGE_FAILED) {
+                fprintf(stderr, ",\"operation\":%u,\"win32_error\":%lu",
+                        (unsigned int)result.value.bridge_failed.operation,
+                        (unsigned long)result.value.bridge_failed.win32_error);
+            }
             fputs("}\n", stderr);
         } else {
             fprintf(stderr, "input failed: %s\n", input_tag_name(result.tag));
@@ -981,6 +988,11 @@ static bool command_input(uint32_t *mask) {
                         (unsigned long)result.value.send_failed.requested_count,
                         (unsigned long)result.value.send_failed.inserted_count,
                         (unsigned long)result.value.send_failed.win32_error);
+            }
+            if (result.tag == TH10_INPUT_BRIDGE_FAILED) {
+                fprintf(stderr, "  operation=%u win32 error=%lu\n",
+                        (unsigned int)result.value.bridge_failed.operation,
+                        (unsigned long)result.value.bridge_failed.win32_error);
             }
         }
         return false;
@@ -1118,6 +1130,8 @@ static bool command_hold(const char *spec, int duration_ms) {
     uint32_t mask = 0;
     char error[128];
     char actions[128];
+    int remaining_ms;
+    th10_input_result result;
 
     if (!parse_action_spec(spec, previous, &mask, error, sizeof(error))) {
         fprintf(stderr, "hold: %s\n", error);
@@ -1127,7 +1141,20 @@ static bool command_hold(const char *spec, int duration_ms) {
         return false;
     }
     format_actions(mask, actions, sizeof(actions));
-    Sleep((DWORD)duration_ms);
+    remaining_ms = duration_ms;
+    while (remaining_ms > 0) {
+        const int slice_ms = remaining_ms > 1000 ? 1000 : remaining_ms;
+        Sleep((DWORD)slice_ms);
+        remaining_ms -= slice_ms;
+        if (remaining_ms > 0) {
+            result = th10_set_input(g_session, mask);
+            if (result.tag != TH10_INPUT_SUCCESS) {
+                fprintf(stderr, "input lease refresh failed: %s\n", input_tag_name(result.tag));
+                (void)command_input(&previous);
+                return false;
+            }
+        }
+    }
     if (!g_json) {
         printf("held %s for %d ms\n", actions, duration_ms);
     }

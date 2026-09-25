@@ -26,6 +26,11 @@ that starts repeating it, which moves a cursor several cells at once.
 
 ## Driving the window
 
+The agent and `th10ctl hold` now opt into the background-input bridge, which
+feeds the game's internal action reducer and does not need the foreground. The
+focus path below remains the fallback for a plain `Session()` and documents why
+ordinary scan-code injection cannot be isolated from desktop use.
+
 Keys only reach the game while its window owns the foreground, and `th10_focus()`
 is what asks for it. That ask can be refused - `TH10_FOCUS_REJECTED` - and then
 every press is dropped in silence: the screen does not change and no error comes

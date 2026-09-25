@@ -114,6 +114,14 @@ static int raise_input_result(th10_input_result result) {
                                        "SendInput inserted %u of %u events",
                                        result.value.send_failed.inserted_count,
                                        result.value.send_failed.requested_count);
+        case TH10_INPUT_BRIDGE_INCOMPATIBLE:
+            PyErr_SetString(PyExc_RuntimeError,
+                            "the running game does not match the verified TH10 1.00a input code");
+            break;
+        case TH10_INPUT_BRIDGE_FAILED:
+            return raise_windows_error(result.value.bridge_failed.win32_error,
+                                       "background input bridge operation %u failed",
+                                       (unsigned int)result.value.bridge_failed.operation);
         default:
             PyErr_SetString(PyExc_SystemError, "invalid th10_set_input result");
             break;
@@ -401,6 +409,20 @@ static PyObject *session_set_input(py_th10_session *self, PyObject *argument) {
     Py_RETURN_NONE;
 }
 
+static PyObject *session_enable_background_input(py_th10_session *self, PyObject *ignored) {
+    th10_input_result result;
+    (void)ignored;
+    if (ensure_open(self) < 0) {
+        return NULL;
+    }
+    result = th10_enable_background_input(self->session);
+    if (result.tag != TH10_INPUT_SUCCESS) {
+        raise_input_result(result);
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
 static int dict_set_owned(PyObject *dictionary, const char *key, PyObject *value) {
     int result;
     if (value == NULL) {
@@ -672,6 +694,8 @@ static PyMethodDef session_methods[] = {
     {"close", (PyCFunction)session_close, METH_NOARGS, "Release input and close the process handle."},
     {"focus", (PyCFunction)session_focus, METH_NOARGS, "Bring the game window to the foreground."},
     {"set_input", (PyCFunction)session_set_input, METH_O, "Set the currently held action mask."},
+    {"enable_background_input", (PyCFunction)session_enable_background_input, METH_NOARGS,
+     "Route input through the game process without taking keyboard focus."},
     {"snapshot", (PyCFunction)session_snapshot, METH_NOARGS, "Read one complete gameplay snapshot."},
     {"scene", (PyCFunction)session_scene, METH_NOARGS,
      "Report the screen family: TH10_SCENE_MENU / STAGE / UNKNOWN. One read, no wait."},

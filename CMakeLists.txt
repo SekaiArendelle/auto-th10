@@ -13,6 +13,7 @@ option(AUTO_TH10_BUILD_TOOLS "Build the th10ctl command line driver" ON)
 add_library(th10_core STATIC
     src/capture.c
     src/input.c
+    src/input_bridge.c
     src/memory.c
     src/session.c
     src/snapshot.c
@@ -22,7 +23,7 @@ target_compile_features(th10_core PUBLIC c_std_17)
 target_include_directories(th10_core
     PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
 )
-target_link_libraries(th10_core PRIVATE kernel32 user32 imm32)
+target_link_libraries(th10_core PRIVATE kernel32 user32 imm32 advapi32)
 set_target_properties(th10_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(MSVC)

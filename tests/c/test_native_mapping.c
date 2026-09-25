@@ -246,6 +246,20 @@ int main(void) {
     }));
     check_attribute(PyExc_OSError, "winerror", "None",
                     "input: UIPI reports no Win32 error, and winerror says so");
+    RAISE(raise_input_result(
+        (th10_input_result){.tag = TH10_INPUT_BRIDGE_INCOMPATIBLE}));
+    check_exception(PyExc_RuntimeError, "input: an incompatible game is rejected");
+    check_message(PyExc_RuntimeError, "verified TH10 1.00a",
+                  "input: the supported executable is named");
+    RAISE(raise_input_result((th10_input_result){
+        .tag = TH10_INPUT_BRIDGE_FAILED,
+        .value.bridge_failed = {
+            .operation = TH10_INPUT_BRIDGE_WRITE_PATCH,
+            .win32_error = 5,
+        },
+    }));
+    check_attribute(PyExc_OSError, "winerror", "5", "input: a bridge Win32 failure");
+    check_message(PyExc_OSError, "operation 10", "input: the failed bridge step is named");
     RAISE(raise_input_result((th10_input_result){.tag = (th10_input_result_tag)999}));
     check_exception(PyExc_SystemError, "input: an unknown tag is a binding bug");
 

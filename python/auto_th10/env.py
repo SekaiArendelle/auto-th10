@@ -185,7 +185,7 @@ class Th10Env:
         self.settings = settings
         self.frame_timeout_s = frame_timeout_s
         self.transition_timeout_s = transition_timeout_s
-        self.session = Session()
+        self.session = Session(background_input=True)
         self._snapshot: Snapshot | None = None
         self._stage_frames = 0
         self._frames = 0

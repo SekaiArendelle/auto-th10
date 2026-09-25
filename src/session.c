@@ -83,10 +83,9 @@ th10_open_result th10_open(void) {
         };
     }
 
-    /* The write access is for one field and one field only: a screen's cursor,
-     * which th10_write_screen_cursor() moves so that leaving an ending does not mean
-     * driving a highlight across a 91-cell grid one key press at a time. Nothing
-     * else in this library writes to the game. */
+    /* Write/operation access serves the screen-cursor write and the explicitly
+     * enabled background-input bridge. The latter validates its exact 1.00a
+     * patch preimage before allocating or changing anything. */
     session->process =
         OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION |
                         PROCESS_QUERY_LIMITED_INFORMATION,
@@ -107,6 +106,7 @@ th10_open_result th10_open(void) {
 
 th10_close_result th10_close(th10_session *session) {
     th10_input_result input_result;
+    th10_input_result bridge_result;
     BOOL handle_result = TRUE;
     DWORD handle_error = ERROR_SUCCESS;
 
@@ -114,6 +114,10 @@ th10_close_result th10_close(th10_session *session) {
         return (th10_close_result){.tag = TH10_CLOSE_INVALID_SESSION};
     }
     input_result = th10_set_input(session, TH10_ACTION_NONE);
+    bridge_result = th10_disable_background_input(session);
+    if (input_result.tag == TH10_INPUT_SUCCESS && bridge_result.tag != TH10_INPUT_SUCCESS) {
+        input_result = bridge_result;
+    }
     if (session->process != NULL) {
         handle_result = CloseHandle(session->process);
         if (!handle_result) {

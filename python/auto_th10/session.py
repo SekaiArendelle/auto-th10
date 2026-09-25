@@ -96,13 +96,31 @@ class Session:
     in docs/game-ui.md.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, background_input: bool = False) -> None:
         self._native = _native.Session()
+        self._background_input = False
+        self._closed = False
+        if background_input:
+            try:
+                self._native.enable_background_input()
+            except BaseException:
+                try:
+                    self._native.close()
+                except BaseException:
+                    pass
+                self._closed = True
+                raise
+            self._background_input = True
 
     def close(self) -> None:
-        self._native.close()
+        try:
+            self._native.close()
+        finally:
+            self._closed = True
 
     def focus(self) -> None:
+        if self._background_input and not self._closed:
+            return
         self._native.focus()
 
     def set_input(self, action: Action | int) -> None:

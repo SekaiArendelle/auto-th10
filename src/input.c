@@ -43,6 +43,13 @@ th10_input_result th10_set_input(th10_session *session, uint32_t action_mask) {
             .value.unsupported_action = {.unsupported_bits = action_mask & ~supported},
         };
     }
+    if (session->input_bridge_installed) {
+        th10_input_result result = th10_set_background_input(session, action_mask);
+        if (result.tag == TH10_INPUT_SUCCESS) {
+            session->action_mask = action_mask;
+        }
+        return result;
+    }
 
     ZeroMemory(inputs, sizeof(inputs));
     for (index = 0; index < ACTION_KEY_COUNT; ++index) {

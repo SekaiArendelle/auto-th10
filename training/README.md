@@ -92,10 +92,11 @@ the entry its cursor opens on - after the checks `resume()` makes, and refuses
 anything else on that screen rather than pressing through it.
 
 `Th10Env.pause()` is the controlled exception used at an in-memory trainer's
-rollout boundary. It releases the policy's held action, focuses the window, taps
-`ESCAPE`, and returns only after the stage clock has stayed frozen for a full
-sample interval and the pause cursor has been read on `Return to Game`. Its
-matching `resume()` focuses the window and rechecks the stage family, live run,
+rollout boundary. The environment enables the background-input bridge when it
+opens its session, so it releases the policy's held action and taps `ESCAPE`
+without taking focus, then returns only after the stage clock has stayed frozen
+for a full sample interval and the pause cursor has been read on `Return to Game`.
+Its matching `resume()` rechecks the stage family, live run,
 unchanged frozen clock, menu and cursor before tapping `SHOOT`, then waits for the
 clock and snapshots to become live. Both return the observation at their verified
 side of the boundary; `MemoryGymEnv` encodes and exposes those values so the

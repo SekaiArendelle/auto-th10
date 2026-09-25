@@ -188,8 +188,30 @@ typedef enum th10_input_result_tag {
     TH10_INPUT_SUCCESS = 0, /**< the requested keys are now the ones held */
     TH10_INPUT_INVALID_SESSION, /**< the session is NULL or already closed */
     TH10_INPUT_UNSUPPORTED_ACTION, /**< the mask had bits outside th10_action; see value.unsupported_action */
-    TH10_INPUT_SEND_FAILED /**< SendInput inserted fewer events than asked; see value.send_failed */
+    TH10_INPUT_SEND_FAILED, /**< SendInput inserted fewer events than asked; see value.send_failed */
+    TH10_INPUT_BRIDGE_INCOMPATIBLE, /**< the running executable is not the verified TH10 1.00a code */
+    TH10_INPUT_BRIDGE_FAILED /**< installing, driving or removing the background bridge failed */
 } th10_input_result_tag;
+
+/** @brief Which part of the background-input bridge failed. */
+typedef enum th10_input_bridge_operation {
+    TH10_INPUT_BRIDGE_VERIFY_EXECUTABLE = 0, /**< hashing the executable backing the process */
+    TH10_INPUT_BRIDGE_READ_PATCH, /**< reading the original instructions */
+    TH10_INPUT_BRIDGE_ALLOCATE_CONTROL, /**< allocating the writable control block */
+    TH10_INPUT_BRIDGE_ALLOCATE_CODE, /**< allocating the injected code */
+    TH10_INPUT_BRIDGE_WRITE_CODE, /**< copying the injected code */
+    TH10_INPUT_BRIDGE_PROTECT_CODE, /**< making the injected code executable */
+    TH10_INPUT_BRIDGE_OPEN_THREAD, /**< opening one game thread for suspension */
+    TH10_INPUT_BRIDGE_SUSPEND_THREAD, /**< suspending one game thread */
+    TH10_INPUT_BRIDGE_RESUME_THREAD, /**< resuming the game thread after a patch */
+    TH10_INPUT_BRIDGE_PROTECT_PATCH, /**< making the patch site writable */
+    TH10_INPUT_BRIDGE_WRITE_PATCH, /**< installing or restoring the branch */
+    TH10_INPUT_BRIDGE_FLUSH_CODE, /**< flushing the game's instruction cache */
+    TH10_INPUT_BRIDGE_RESTORE_PROTECTION, /**< restoring the patch site's protection */
+    TH10_INPUT_BRIDGE_WRITE_CONTROL, /**< publishing an action and its frame lease */
+    TH10_INPUT_BRIDGE_FREE_CODE, /**< releasing the injected code */
+    TH10_INPUT_BRIDGE_FREE_CONTROL /**< releasing the writable control block */
+} th10_input_bridge_operation;
 
 /**
  * @brief The outcome of th10_set_input().
@@ -207,6 +229,10 @@ typedef struct th10_input_result {
             uint32_t inserted_count; /**< how many SendInput() reported as inserted */
             uint32_t win32_error; /**< GetLastError(); may be zero when UIPI blocked the input */
         } send_failed;
+        struct {
+            th10_input_bridge_operation operation; /**< the bridge step that failed */
+            uint32_t win32_error; /**< GetLastError(), or zero for a short read/write */
+        } bridge_failed;
     } value;
 } th10_input_result;
 
@@ -345,17 +371,54 @@ th10_focus_result th10_focus(th10_session *session);
  *
  * The mask is a new state, not a delta: keys that were held and are no longer in
  * the mask are released, the ones that appear are pressed, and the ones that stay
- * are left alone, so repeating a call injects nothing. The keys are injected by
- * scan code with the arrow keys marked as extended keys, because a DirectInput
- * game never reads the virtual key path.
+ * are left alone. By default the keys are injected by scan code with the arrow
+ * keys marked as extended keys, because a DirectInput game never reads the
+ * virtual key path. After th10_enable_background_input(), the same mask is
+ * written to the leased in-process bridge instead and repeating a call refreshes
+ * that lease.
  *
  * @param session The session from th10_open().
  * @param action_mask A combination of th10_action bits, or TH10_ACTION_NONE to
  *        release everything.
- * @return TH10_INPUT_SUCCESS, or which part of the mask was unsupported, or
- *         which events SendInput() refused.
+ * @return TH10_INPUT_SUCCESS, or which part of the mask was unsupported, or why
+ *         the selected input backend failed.
  */
 th10_input_result th10_set_input(th10_session *session, uint32_t action_mask);
+
+/**
+ * @brief Routes later input through the game process without taking focus.
+ *
+ * The bridge replaces the action word after TH10 has combined DirectInput and
+ * joystick state, before the game derives held/pressed/released edges from it.
+ * Movement, focus speed, collision and menu repeat therefore remain the game's
+ * original behavior; only the source of the action mask changes.
+ *
+ * Each th10_set_input() refreshes a 120-frame lease. If the controller exits
+ * without closing, the lease expires and the unmodified physical-input result
+ * is used again. th10_disable_background_input() restores the original code.
+ * Both operations verify the exact instruction bytes measured in a running
+ * th10.exe 1.00a before writing anything.
+ *
+ * @param session The session from th10_open().
+ * @return TH10_INPUT_SUCCESS, or why the reversible bridge could not be installed.
+ */
+th10_input_result th10_enable_background_input(th10_session *session);
+
+/**
+ * @brief Restores the instructions replaced by th10_enable_background_input().
+ *
+ * Calling this when the bridge is not enabled succeeds. The bridge is also
+ * removed by th10_close().
+ *
+ * @note If the game thread is caught executing the trampoline during removal,
+ *       its two private pages are conservatively retained until the game exits;
+ *       the restored entry cannot reach them again. This avoids freeing code
+ *       underneath the resumed thread.
+ *
+ * @param session The session from th10_open().
+ * @return TH10_INPUT_SUCCESS, or the teardown step that failed.
+ */
+th10_input_result th10_disable_background_input(th10_session *session);
 
 /**
  * @brief Prepares a snapshot for its first read.
