@@ -5,8 +5,9 @@ import numpy as np
 
 from auto_th10 import TRAIN_PRESET, Action
 from auto_th10 import env as env_module
-from fakes import FakeSession, make_environment, make_snapshot
-from training.rl import MemoryGymEnv
+from fakes import FakeSession, make_bullet, make_environment, make_snapshot
+from training.policy import EvasivePolicy
+from training.rl import EvasiveTeacher, MemoryGymEnv, ModelAction
 from training.rl import gym_env as gym_env_module
 
 
@@ -53,6 +54,49 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertEqual(env.action_space.nvec.tolist(), [17, 2])
         self.assertEqual(info["score"], 100)
         self.assertEqual(info["steps"], 0)
+
+    def test_raw_observation_matches_the_encoded_gym_observation(self) -> None:
+        env = self.make_env(
+            FakeSession(snapshots=(make_snapshot(score=100, player=(3.0, 4.0)),))
+        )
+
+        encoded, _ = env.reset()
+
+        self.assertTrue(
+            np.array_equal(
+                encoded,
+                np.asarray(env.encoder.encode(env.raw_observation), dtype=np.float32),
+            )
+        )
+
+    def test_raw_observation_requires_reset(self) -> None:
+        env = self.make_env(FakeSession())
+
+        with self.assertRaisesRegex(RuntimeError, "before reading raw_observation"):
+            _ = env.raw_observation
+
+    def test_dagger_annotation_tracks_the_gym_frames_actually_applied(self) -> None:
+        dangerous = make_snapshot(
+            player=(0.0, 400.0),
+            enemy_bullets=(make_bullet(0.0, 400.0),),
+        )
+        env = self.make_env(FakeSession(snapshots=(dangerous,)), action_repeat=4)
+        teacher = EvasiveTeacher(EvasivePolicy(bomb_cooldown_frames=5))
+        env.reset()
+        label = teacher.annotate(env.raw_observation)
+        learner_action = ModelAction(label.movement, True)
+
+        _, _, _, _, info = env.step(
+            np.asarray(
+                [learner_action.movement, learner_action.bomb], dtype=np.int64
+            )
+        )
+        teacher.feedback(learner_action, frames=int(info["delta_frames"]))
+        next_label = teacher.annotate(env.raw_observation)
+
+        self.assertTrue(label.bomb)
+        self.assertEqual(info["delta_frames"], 4)
+        self.assertFalse(next_label.bomb)
 
     def test_step_decodes_heads_and_pulses_shoot_on_a_quiet_field(self) -> None:
         session = FakeSession(snapshots=(make_snapshot(), make_snapshot(), make_snapshot()))

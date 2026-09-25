@@ -4,17 +4,20 @@ from .actions import ACTION_SCHEMA_VERSION, ActionSpec, ModelAction, decode_acti
 from .features import FEATURE_SCHEMA_VERSION, FeatureSpec, MemoryFeatureEncoder
 from .gym_env import MemoryGymEnv
 from .rewards import RewardBreakdown, RewardSpec, memory_reward
+from .teacher import EvasiveTeacher, Teacher
 
 __all__ = [
     "ACTION_SCHEMA_VERSION",
     "FEATURE_SCHEMA_VERSION",
     "ActionSpec",
     "FeatureSpec",
+    "EvasiveTeacher",
     "MemoryFeatureEncoder",
     "MemoryGymEnv",
     "ModelAction",
     "RewardBreakdown",
     "RewardSpec",
+    "Teacher",
     "decode_action",
     "encode_action",
     "memory_reward",

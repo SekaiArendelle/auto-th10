@@ -162,6 +162,18 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         """Close the core environment this adapter built."""
         self.env.close()
 
+    @property
+    def raw_observation(self) -> Observation:
+        """The memory observation matching the current encoded observation.
+
+        DAgger teachers need the variable-length game objects that the model's
+        fixed feature vector intentionally discards. Exposing the synchronized
+        value here keeps the trainer out of the adapter's core environment.
+        """
+        if self._observation is None:
+            raise RuntimeError("reset() must be called before reading raw_observation")
+        return self._observation
+
     def _encode(self, observation: Observation) -> np.ndarray:
         return np.asarray(self.encoder.encode(observation), dtype=np.float32)
 

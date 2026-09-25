@@ -139,14 +139,31 @@ class EvasivePolicy:
         self.threat_weight = threat_weight
         self.incoming_weight = incoming_weight
         self._moves = dodging.moves(focus=focus)
+        self.reset()
+
+    def reset(self) -> None:
+        """Forget decision state before starting an independent trajectory."""
         self._cooldown = 0
         self._lives = 0
         self._decisions = 0
 
     def decide(self, observation: Observation) -> Action:
+        """Recommend and commit the action this policy will execute."""
+        action = self.recommend(observation)
+        self.commit(action)
+        return action
+
+    def recommend(self, observation: Observation) -> Action:
+        """Return an action without assuming that the caller executed it.
+
+        A DAgger teacher queries a counterfactual action while the learned policy
+        remains in control. Advancing the cooldown here would treat an ignored
+        bomb recommendation as a real bomb, so state advances separately through
+        commit(). Ordinary decide() pairs the two calls immediately.
+        """
         snapshot = observation.snapshot
-        self._decisions += 1
         self._forget_an_old_cooldown(snapshot)
+        decision = self._decisions + 1
         x, y = snapshot.player.x, snapshot.player.y
         boxes = dodging.boxes_from(
             snapshot,
@@ -181,10 +198,24 @@ class EvasivePolicy:
             frames, _, _, action = max(ranked, key=lambda move: move[:3])
 
         if frames <= self.bomb_frames and self._cooldown == 0:
-            self._cooldown = self.bomb_cooldown_frames
-            return action | shoot_action(snapshot, self._decisions) | Action.BOMB
-        self._cooldown = max(0, self._cooldown - 1)
-        return action | shoot_action(snapshot, self._decisions)
+            return action | shoot_action(snapshot, decision) | Action.BOMB
+        return action | shoot_action(snapshot, decision)
+
+    def commit(self, action: Action | int, *, frames: int = 1) -> None:
+        """Advance decision state using the action that was actually executed."""
+        if isinstance(frames, bool) or not isinstance(frames, int):
+            raise TypeError("frames must be an integer")
+        if frames < 0:
+            raise ValueError("frames must not be negative")
+        native = Action(action)
+        self._decisions += 1
+        if native & Action.BOMB:
+            elapsed_after_bomb = max(0, frames - 1)
+            self._cooldown = max(
+                0, self.bomb_cooldown_frames - elapsed_after_bomb
+            )
+        else:
+            self._cooldown = max(0, self._cooldown - frames)
 
     def _forget_an_old_cooldown(self, snapshot: Snapshot) -> None:
         """Drops the bomb cooldown when a new run has begun.

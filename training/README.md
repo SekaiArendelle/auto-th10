@@ -203,6 +203,10 @@ pixi run python -m training.collect --out runs/first.jsonl
   and a binary bomb choice. Shooting stays outside the learned action for now so
   combat can hold it and dialogue can pulse it without teaching the model that
   game-specific convention.
+- `training/rl/teacher.py` - the reusable DAgger annotation boundary. Its
+  `EvasiveTeacher` projects `EvasivePolicy` decisions onto the model's movement
+  and bomb heads, then advances cooldown state from the learner action reported
+  through `feedback()` rather than from advice the learner may have ignored.
 - `training/rl/rewards.py` - the first shaped reward: small survival progress,
   clipped positive score progress, and explicit penalties for a lost life, a
   bomb and game over. Every term remains visible in the step metadata so a
@@ -238,6 +242,28 @@ control. `max_steps` counts model decisions rather than raw game frames; the
 `frames` and `delta_frames` info fields retain the actual stage-clock progress.
 The reward constants are starting scales, not tuned claims. Evaluation should
 continue reporting raw score and survived frames independently of shaped reward.
+
+The teacher is queried alongside the learner rather than substituted for it:
+
+```python
+import numpy as np
+
+features, _ = env.reset()
+teacher_label = teacher.annotate(env.raw_observation)
+learner_action = model.act(features)  # returns ModelAction
+features, reward, terminated, truncated, info = env.step(
+    np.asarray([learner_action.movement, learner_action.bomb], dtype=np.int64)
+)
+teacher.feedback(learner_action, frames=int(info["delta_frames"]))
+```
+
+`feedback()` comes only after the action was successfully applied. This keeps the
+teacher's bomb cooldown on the learner's real history and the game's actual frame
+clock: ignoring a recommended bomb leaves it available as the next label, while
+a learner-selected bomb starts the cooldown even when the teacher preferred not
+to spend one. `reset()` clears the annotation pairing and state for a genuinely
+independent trajectory; a PPO rollout boundary in the middle of the same game
+must not call it.
 
 Open: tuning against a real stage - the entry points run, but nothing here has been
 tuned with the game in front of it, and `BULLET_LEAD` and the laser box are still

@@ -64,9 +64,10 @@ BOMB_FRAMES = 3
 
 BOMB_COOLDOWN_FRAMES = 240
 """How long to leave the bomb key alone after spending one: the bomb is pressed
-and then not pressed again for this many calls to `decide()`. The reference uses
-240 frames for the same purpose, which is the invulnerability a bomb grants; the
-snapshot carries no such flag, so a frame counter stands in for it."""
+and then not pressed again for this many game frames. The reference uses 240
+frames for the same purpose, which is the invulnerability a bomb grants; the
+snapshot carries no such flag, so the teacher advances this counter from the
+environment's measured frame delta."""
 
 RESOURCE_RANGE_SQR = 390400.0
 """The squared distance at which a resource point stops pulling
