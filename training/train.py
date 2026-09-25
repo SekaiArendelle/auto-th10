@@ -31,6 +31,7 @@ from .rl import (
 
 DEFAULT_CHECKPOINT = pathlib.Path("runs/dagger.pt")
 DEFAULT_TENSORBOARD_ROOT = pathlib.Path("runs/tensorboard")
+INPUT_BACKEND = "background"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _write_hyperparameters(writer, args)
         print(f"TensorBoard logs: {run_dir}")
+        print(f"Input backend: {INPUT_BACKEND}")
         # Built inside the handler's reach: attaching to the game can itself be
         # interrupted, or refused with NotInStage, before the first iteration.
         env = MemoryGymEnv(feature_spec=feature_spec)
@@ -330,6 +332,7 @@ def _write_hyperparameters(writer: SummaryWriter, args: argparse.Namespace) -> N
         "buffer_capacity": args.buffer_capacity,
         "checkpoint": str(args.checkpoint),
         "horizon": args.horizon,
+        "input_backend": INPUT_BACKEND,
         "iterations": "inf" if args.iterations is None else args.iterations,
         "learning_rate": args.learning_rate,
         "seed": args.seed,

@@ -70,6 +70,22 @@ if(AUTO_TH10_BUILD_TESTS)
     add_executable(test_c_api tests/c/test_c_api.c)
     target_link_libraries(test_c_api PRIVATE th10_core)
     add_test(NAME c_api COMMAND test_c_api)
+    if(AUTO_TH10_BUILD_TOOLS)
+        add_test(NAME cli_default_backend_selection COMMAND th10ctl --help)
+        set_tests_properties(cli_default_backend_selection PROPERTIES
+            PASS_REGULAR_EXPRESSION "Selected input backend: background"
+        )
+        add_test(NAME cli_foreground_backend_selection
+            COMMAND th10ctl --input-backend foreground --help
+        )
+        set_tests_properties(cli_foreground_backend_selection PROPERTIES
+            PASS_REGULAR_EXPRESSION "Selected input backend: foreground"
+        )
+        add_test(NAME cli_invalid_input_backend
+            COMMAND th10ctl --input-backend invalid hold left 1
+        )
+        set_tests_properties(cli_invalid_input_backend PROPERTIES WILL_FAIL TRUE)
+    endif()
     if(AUTO_TH10_BUILD_PYTHON)
         # The tag -> exception mapping lives in static functions of the binding,
         # so this test includes the binding and starts an interpreter instead of

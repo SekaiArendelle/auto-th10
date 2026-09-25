@@ -1,6 +1,7 @@
 import contextlib
 import io
 import itertools
+import json
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -65,6 +66,7 @@ class TrainEntryPointTests(unittest.TestCase):
 
     def test_a_finite_run_stops_after_its_iterations(self) -> None:
         env = _FakeEnv()
+        stdout = io.StringIO()
         iteration = SimpleNamespace(
             rollout=SimpleNamespace(
                 samples=(), terminated=False, truncated=False
@@ -75,13 +77,26 @@ class TrainEntryPointTests(unittest.TestCase):
         with (
             mock.patch.object(train, "MemoryGymEnv", return_value=env),
             mock.patch.object(train, "run_dagger_iteration", return_value=iteration) as run,
+            contextlib.redirect_stdout(stdout),
         ):
             code = train.main(["--iterations", "2"])
 
         self.assertEqual(code, 0)
         self.assertEqual(run.call_count, 2)
         self.assertTrue(env.closed)
+        self.assertIn("Input backend: background", stdout.getvalue())
         self.writer.close.assert_called_once_with()
+
+    def test_hyperparameters_name_the_fixed_input_backend(self) -> None:
+        args = train.build_parser().parse_args([])
+
+        train._write_hyperparameters(self.writer, args)
+
+        text = self.writer.add_text.call_args.args[1]
+        values = json.loads(
+            text.removeprefix("```json\n").removesuffix("\n```")
+        )
+        self.assertEqual(values["input_backend"], "background")
 
     def test_iteration_metrics_are_grouped_for_tensorboard(self) -> None:
         updates = (

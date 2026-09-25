@@ -65,6 +65,7 @@ Holding an action down is therefore one command:
 
 ```powershell
 .\build\dev\th10ctl.exe hold "shoot focus" 500   # press both for 500 ms, then release
+.\build\dev\th10ctl.exe --input-backend foreground hold left 300  # compatibility path
 .\build\dev\th10ctl.exe watch 100 20            # 20 snapshots, 100 ms apart
 ```
 
@@ -76,6 +77,11 @@ controller that disappears falls back to physical input in about two seconds;
 normal close restores the original instructions immediately. Installation first
 checks the exact instruction bytes verified against `th10.exe` 1.00a and refuses
 another build instead of guessing.
+
+The optional `--input-backend foreground` compatibility path gives the game
+focus and sends virtual keys to the desktop. It can therefore interfere with
+other keyboard use and is never selected as an automatic fallback when the
+background bridge rejects an executable.
 
 No command ever waits for input, so the tool is safe to call from a script:
 without a command it prints its usage, and `watch` reads 10 snapshots by default

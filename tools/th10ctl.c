@@ -29,6 +29,11 @@ typedef struct action_entry {
     const char *name;
 } action_entry;
 
+typedef enum input_backend {
+    INPUT_BACKEND_BACKGROUND,
+    INPUT_BACKEND_FOREGROUND,
+} input_backend;
+
 static const action_entry ACTIONS[] = {
     {TH10_ACTION_LEFT, "left"},
     {TH10_ACTION_RIGHT, "right"},
@@ -44,9 +49,14 @@ static const action_entry ACTIONS[] = {
 
 static bool g_json = false;
 static bool g_verbose = false;
+static input_backend g_input_backend = INPUT_BACKEND_BACKGROUND;
 static th10_session *g_session = NULL;
 static uint32_t g_action_mask = 0;
 static volatile LONG g_interrupted = 0;
+
+static const char *input_backend_name(input_backend backend) {
+    return backend == INPUT_BACKEND_BACKGROUND ? "background" : "foreground";
+}
 
 static void print_usage(void) {
     printf("Usage: th10ctl [options] [command [arguments...]]\n"
@@ -57,12 +67,14 @@ static void print_usage(void) {
            "Options:\n"
            "  -j, --json      print results as JSON\n"
            "  -v, --verbose   list every element of a snapshot\n"
+           "      --input-backend <background|foreground>\n"
+           "                   select hold's input path; background is the default\n"
            "  -h, --help      show this help\n"
            "\n"
            "Commands:\n"
            "  info                      attach to the game and report the session\n"
-           "  focus                     hand the game the keyboard focus, so that it\n"
-           "                            receives the keys injected by hold\n"
+           "  focus                     hand the game the keyboard focus for manual\n"
+           "                            keyboard input\n"
            "  scene                     report the screen family: menu or stage (one\n"
            "                            read, no waiting)\n"
            "  state                     report the screen: menu / playing / paused /\n"
@@ -87,7 +99,10 @@ static void print_usage(void) {
            "is held instead of replacing it:\n"
            "  th10ctl hold \"shoot focus\" 500     hold both for 500 ms\n"
            "  th10ctl hold \"+left\" 300          add left to the held actions\n"
-           "  th10ctl hold none 100              release everything for 100 ms\n");
+           "  th10ctl hold none 100              release everything for 100 ms\n"
+           "  th10ctl --input-backend foreground hold left 300\n"
+           "                                           use focus plus desktop input\n");
+    printf("\nSelected input backend: %s\n", input_backend_name(g_input_backend));
 }
 
 #define RETURN_TAG_NAME(tag_value)                                                                 \
@@ -942,17 +957,30 @@ static bool command_capture(const char *path) {
 
 static bool command_input(uint32_t *mask) {
     th10_input_result result;
+    th10_focus_result focus_result;
     char actions[128];
+    const char *backend_name;
 
     if (!attach_session(ATTACH_NORMAL)) {
         return false;
     }
-    /* The in-process bridge feeds the word after DirectInput and joystick state
-     * have been combined, so this command neither foregrounds the game nor sends
-     * keys to the desktop. Repeated calls keep the bridge and refresh its lease. */
-    result = th10_enable_background_input(g_session);
-    if (result.tag != TH10_INPUT_SUCCESS) {
-        goto input_failed;
+    if (g_input_backend == INPUT_BACKEND_BACKGROUND) {
+        /* The in-process bridge feeds the word after DirectInput and joystick state
+         * have been combined, so this command neither foregrounds the game nor sends
+         * keys to the desktop. Repeated calls keep the bridge and refresh its lease. */
+        result = th10_enable_background_input(g_session);
+        if (result.tag != TH10_INPUT_SUCCESS) {
+            goto input_failed;
+        }
+        backend_name = "background";
+    } else {
+        /* Foreground input is an explicit compatibility path. It intentionally
+         * takes focus before th10_set_input() sends virtual keys to the desktop. */
+        focus_result = th10_focus(g_session);
+        if (!report_focus(&focus_result)) {
+            return false;
+        }
+        backend_name = "foreground";
     }
     result = th10_set_input(g_session, *mask);
     if (result.tag != TH10_INPUT_SUCCESS) {
@@ -1001,10 +1029,11 @@ input_failed:
     g_action_mask = *mask;
     format_actions(*mask, actions, sizeof(actions));
     if (g_json) {
-        printf("{\"input\":\"success\",\"mask\":%lu,\"actions\":\"%s\"}\n", (unsigned long)*mask,
-               actions);
+        printf("{\"input\":\"success\",\"backend\":\"%s\",\"mask\":%lu,"
+               "\"actions\":\"%s\"}\n",
+               backend_name, (unsigned long)*mask, actions);
     } else {
-        printf("input: %s\n", actions);
+        printf("input (%s): %s\n", backend_name, actions);
     }
     return true;
 }
@@ -1125,40 +1154,64 @@ static bool parse_action_spec(const char *spec, uint32_t current, uint32_t *out,
  * process rather than by whatever drives the tool: a game that polls its input
  * every frame cannot be driven by keystrokes whose duration depends on how
  * quickly the next command arrives. */
-static bool command_hold(const char *spec, int duration_ms) {
+static int command_hold(const char *spec, int duration_ms) {
     uint32_t previous = g_action_mask;
     uint32_t mask = 0;
     char error[128];
     char actions[128];
     int remaining_ms;
+    int refresh_ms;
     th10_input_result result;
 
     if (!parse_action_spec(spec, previous, &mask, error, sizeof(error))) {
         fprintf(stderr, "hold: %s\n", error);
-        return false;
+        return 1;
     }
     if (!command_input(&mask)) {
-        return false;
+        return 1;
     }
     format_actions(mask, actions, sizeof(actions));
     remaining_ms = duration_ms;
+    refresh_ms = 1000;
     while (remaining_ms > 0) {
-        const int slice_ms = remaining_ms > 1000 ? 1000 : remaining_ms;
+        int slice_ms = remaining_ms > 100 ? 100 : remaining_ms;
+
+        if (slice_ms > refresh_ms) {
+            slice_ms = refresh_ms;
+        }
         Sleep((DWORD)slice_ms);
         remaining_ms -= slice_ms;
-        if (remaining_ms > 0) {
+        refresh_ms -= slice_ms;
+        if (InterlockedExchange(&g_interrupted, 0) != 0) {
+            const bool restored = command_input(&previous);
+
+            if (!g_json) {
+                fputs("hold interrupted\n", stderr);
+            }
+            return restored ? 130 : 1;
+        }
+        if (remaining_ms > 0 && refresh_ms == 0) {
+            if (g_input_backend == INPUT_BACKEND_FOREGROUND) {
+                th10_focus_result focus_result = th10_focus(g_session);
+
+                if (!report_focus(&focus_result)) {
+                    (void)command_input(&previous);
+                    return 1;
+                }
+            }
             result = th10_set_input(g_session, mask);
             if (result.tag != TH10_INPUT_SUCCESS) {
                 fprintf(stderr, "input lease refresh failed: %s\n", input_tag_name(result.tag));
                 (void)command_input(&previous);
-                return false;
+                return 1;
             }
+            refresh_ms = 1000;
         }
     }
     if (!g_json) {
         printf("held %s for %d ms\n", actions, duration_ms);
     }
-    return command_input(&previous);
+    return command_input(&previous) ? 0 : 1;
 }
 
 static bool parse_long(const char *text, long minimum, long maximum, long *out) {
@@ -1195,6 +1248,20 @@ int main(int argc, char **argv) {
             g_json = true;
         } else if (strcmp(argv[index], "-v") == 0 || strcmp(argv[index], "--verbose") == 0) {
             g_verbose = true;
+        } else if (strcmp(argv[index], "--input-backend") == 0) {
+            if (index + 1 >= argc) {
+                fputs("--input-backend: expected 'background' or 'foreground'\n", stderr);
+                return 2;
+            }
+            ++index;
+            if (strcmp(argv[index], "background") == 0) {
+                g_input_backend = INPUT_BACKEND_BACKGROUND;
+            } else if (strcmp(argv[index], "foreground") == 0) {
+                g_input_backend = INPUT_BACKEND_FOREGROUND;
+            } else {
+                fprintf(stderr, "--input-backend: unknown backend '%s'\n", argv[index]);
+                return 2;
+            }
         } else if (strcmp(argv[index], "-h") == 0 || strcmp(argv[index], "--help") == 0) {
             print_usage();
             return 0;
@@ -1261,6 +1328,7 @@ int main(int argc, char **argv) {
         (void)SetConsoleCtrlHandler(console_control_handler, TRUE);
         status = command_watch((int)interval_ms, count) ? 0 : 1;
     } else if (strcmp(command, "hold") == 0) {
+        DWORD handler_error;
         long duration_ms = 0;
 
         if (index >= argc) {
@@ -1271,7 +1339,19 @@ int main(int argc, char **argv) {
             fputs("hold: expected a duration in milliseconds, e.g. 'hold left 300'\n", stderr);
             return 2;
         }
-        status = command_hold(argv[index], (int)duration_ms) ? 0 : 1;
+        if (!SetConsoleCtrlHandler(console_control_handler, TRUE)) {
+            handler_error = GetLastError();
+            if (g_json) {
+                fprintf(stderr,
+                        "{\"error\":\"console_control_handler\",\"win32_error\":%lu}\n",
+                        (unsigned long)handler_error);
+            } else {
+                fprintf(stderr, "hold: could not install interrupt handler (win32 error %lu)\n",
+                        (unsigned long)handler_error);
+            }
+            return 1;
+        }
+        status = command_hold(argv[index], (int)duration_ms);
     } else if (strcmp(command, "input") == 0) {
         fprintf(stderr,
                 "input: a one-shot process cannot hold an action down because th10_close()\n"
