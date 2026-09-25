@@ -14,9 +14,9 @@ from typing import NamedTuple, TypeVar
 
 from auto_th10 import EnemyBullet, EnemyLaser, Observation, Point, Rect
 
-from ..dodging import laser_box
+from ..dodging import BOMB_COOLDOWN_FRAMES, laser_box
 
-FEATURE_SCHEMA_VERSION = 1
+FEATURE_SCHEMA_VERSION = 2
 
 HALF_WIDTH = 200.0
 FIELD_WIDTH = 400.0
@@ -34,6 +34,7 @@ class _GlobalFeatures(NamedTuple):
     power: float
     lives: float
     game_over: float
+    frames_since_bomb: float
     enemy_count: float
     bullet_count: float
     laser_count: float
@@ -124,7 +125,12 @@ class MemoryFeatureEncoder:
     def __init__(self, spec: FeatureSpec = FeatureSpec()) -> None:
         self.spec = spec
 
-    def encode(self, observation: Observation) -> tuple[float, ...]:
+    def encode(
+        self,
+        observation: Observation,
+        *,
+        frames_since_bomb: int | None = None,
+    ) -> tuple[float, ...]:
         """Return bounded scalars in deterministic nearest-entity order."""
         snapshot = observation.snapshot
         player = snapshot.player
@@ -136,6 +142,7 @@ class MemoryFeatureEncoder:
                 power=_positive_squash(snapshot.power, POWER_SCALE),
                 lives=_clip(snapshot.lives / LIVES_SCALE),
                 game_over=1.0 if snapshot.game_over else 0.0,
+                frames_since_bomb=_bomb_history_feature(frames_since_bomb),
                 enemy_count=_count_feature(len(snapshot.enemies), self.spec.max_enemies),
                 bullet_count=_count_feature(
                     len(snapshot.enemy_bullets), self.spec.max_bullets
@@ -281,3 +288,15 @@ def _clip(value: float) -> float:
 
 def _positive_clip(value: float) -> float:
     return min(1.0, max(0.0, float(value)))
+
+
+def _bomb_history_feature(frames_since_bomb: int | None) -> float:
+    """Encode recent bomb history, with an old or absent bomb meaning ready."""
+    if frames_since_bomb is None:
+        return 1.0
+    if isinstance(frames_since_bomb, bool) or not isinstance(frames_since_bomb, int):
+        raise TypeError("frames_since_bomb must be an integer or None")
+    if frames_since_bomb < 0:
+        raise ValueError("frames_since_bomb must not be negative")
+    age = min(frames_since_bomb, BOMB_COOLDOWN_FRAMES)
+    return 2.0 * age / BOMB_COOLDOWN_FRAMES - 1.0

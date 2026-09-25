@@ -11,9 +11,12 @@ The second job is to be a teacher. A deterministic policy that plays a real stag
 produces `(observation, action, reward)` rows without a model in the loop, so it
 can generate the first dataset and later act as the baseline a model has to beat.
 
-A memory-backed PPO model is the next layer to add. Nothing below depends on its
-implementation: scripted baselines and learned policies use the same observation,
-action and episode boundaries.
+The learned layer starts with online DAgger: the model visits states, the evasive
+policy labels them, and supervised updates teach the two action heads. The same
+network already has a value head so PPO can reuse it after imitation has produced
+a policy capable of surviving long enough to collect useful rollouts. Nothing
+below depends on that training choice: scripted baselines and learned policies use
+the same observation, action and episode boundaries.
 
 ## Layers
 
@@ -184,6 +187,7 @@ Both entry points expect a game that is already in a stage:
 ```powershell
 pixi run python -m training.evaluate --episodes 3 --policy evasive
 pixi run python -m training.collect --out runs/first.jsonl
+pixi run python -m training.train --iterations 100
 ```
 
 - `training/policy.py` - `FixedPolicy`, `EvasivePolicy` and `RandomPolicy`,
@@ -195,10 +199,11 @@ pixi run python -m training.collect --out runs/first.jsonl
 - `training/dataset.py` - the versioned JSON representation of a transition,
   including every field in both memory-backed observations.
 - `training/collect.py` - writes those transitions as JSONL rows under `runs/`.
-- `training/rl/features.py` - feature schema version 1: a bounded fixed-length
-  tuple made from the memory snapshot. It keeps configurable nearest-entity
-  prefixes and pads them with explicit masks. A checkpoint records the schema
-  version and entity limits that define the tuple's exact layout.
+- `training/rl/features.py` - feature schema version 2: a bounded fixed-length
+  tuple made from the memory snapshot plus measured frames since the model last
+  bombed. It keeps configurable nearest-entity prefixes and pads them with
+  explicit masks. A checkpoint records the schema version and entity limits that
+  define the tuple's exact layout.
 - `training/rl/actions.py` - action schema version 1: 17 valid movement choices
   and a binary bomb choice. Shooting stays outside the learned action for now so
   combat can hold it and dialogue can pulse it without teaching the model that
@@ -207,6 +212,16 @@ pixi run python -m training.collect --out runs/first.jsonl
   `EvasiveTeacher` projects `EvasivePolicy` decisions onto the model's movement
   and bomb heads, then advances cooldown state from the learner action reported
   through `feedback()` rather than from advice the learner may have ignored.
+- `training/rl/model.py` - one shared MLP trunk with independent 17-way movement,
+  binary bomb and scalar value heads. Imitation trains the action heads; PPO can
+  later train all three without changing the checkpoint shape.
+- `training/rl/imitation.py` - movement and bomb cross-entropy updates. Bomb
+  positives are both sampled deliberately and weighted because the useful label
+  is rare.
+- `training/rl/dagger.py` - bounded aggregation, beta-mixture rollouts and the
+  fixed-horizon pause/update/resume transaction. A failed update deliberately
+  leaves the game paused; a collection failure stops the environment and releases
+  held input.
 - `training/rl/rewards.py` - the first shaped reward: small survival progress,
   clipped positive score progress, and explicit penalties for a lost life, a
   bomb and game over. Every term remains visible in the step metadata so a
@@ -219,8 +234,9 @@ pixi run python -m training.collect --out runs/first.jsonl
   action, feature and reward protocols included - needs them.
 - `training/shooting.py` - the fixed combat/dialogue shooting rule shared by the
   scripted baseline and the Gymnasium adapter.
-- `training/train.py` - a stub: the Gymnasium boundary is now ready, but the PPO
-  network, rollout buffer and optimizer have not been added yet.
+- `training/train.py` - the online DAgger entry point. It decays the probability
+  of executing teacher actions and atomically writes model, optimizer and schema
+  metadata to `runs/dagger.pt` after every iteration.
 
 The adapter is constructed directly after installing the training extras:
 
@@ -233,15 +249,17 @@ observation, info = env.reset()
 env.close()  # releases the game session the adapter built
 ```
 
-`pixi run test-training` runs the RL protocol, reward and adapter suites. The Pixi
-environment locks the Gymnasium/NumPy part of those extras; it does not install
-PyTorch yet because no model code consumes it at this stage.
+`pixi run test-training` runs the RL protocol, reward, model, DAgger and adapter
+suites. The Pixi environment locks Gymnasium, NumPy and CPU PyTorch.
 
 `action_repeat` defaults to one because bullet avoidance needs frame-level
 control. `max_steps` counts model decisions rather than raw game frames; the
 `frames` and `delta_frames` info fields retain the actual stage-clock progress.
 The reward constants are starting scales, not tuned claims. Evaluation should
 continue reporting raw score and survived frames independently of shaped reward.
+DAgger does not accept `max_steps`: its own fixed `horizon` is the resumable
+rollout boundary, while a Gym truncation releases input but cannot freeze the
+still-running game for an update.
 
 The teacher is queried alongside the learner rather than substituted for it:
 
@@ -265,7 +283,8 @@ to spend one. `reset()` clears the annotation pairing and state for a genuinely
 independent trajectory; a PPO rollout boundary in the middle of the same game
 must not call it.
 
-Open: tuning against a real stage - the entry points run, but nothing here has been
-tuned with the game in front of it, and `BULLET_LEAD` and the laser box are still
-guesses - a name of its own for a record worth keeping, and a model, which swaps in
-behind `Policy` without the loop noticing.
+Open: tuning DAgger against a real stage; adding checkpoint resume and evaluation;
+then collecting advantages and adding PPO updates behind the existing value head.
+Nothing here has been tuned with the game in front of it, and `BULLET_LEAD` and the
+laser box are still guesses. A name of its own for a record worth keeping also
+remains outside the scripted lifecycle.

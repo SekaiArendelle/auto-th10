@@ -22,6 +22,9 @@ class Teacher(Protocol):
     def feedback(self, action: ModelAction, *, frames: int) -> None:
         """Commit the model action that was successfully applied after the label."""
 
+    def advance(self, *, frames: int) -> None:
+        """Advance elapsed game time that did not contain a model decision."""
+
     def reset(self) -> None:
         """Forget state before starting an independent trajectory."""
 
@@ -53,6 +56,11 @@ class EvasiveTeacher:
         native = decode_action(action)
         self.policy.commit(native, frames=frames)
         self._waiting_for_feedback = False
+
+    def advance(self, *, frames: int) -> None:
+        if self._waiting_for_feedback:
+            raise RuntimeError("feedback() must complete the previous annotation")
+        self.policy.elapse(frames=frames)
 
     def reset(self) -> None:
         self.policy.reset()

@@ -217,6 +217,14 @@ class EvasivePolicy:
         else:
             self._cooldown = max(0, self._cooldown - frames)
 
+    def elapse(self, *, frames: int) -> None:
+        """Advance cooldown time without counting another policy decision."""
+        if isinstance(frames, bool) or not isinstance(frames, int):
+            raise TypeError("frames must be an integer")
+        if frames < 0:
+            raise ValueError("frames must not be negative")
+        self._cooldown = max(0, self._cooldown - frames)
+
     def _forget_an_old_cooldown(self, snapshot: Snapshot) -> None:
         """Drops the bomb cooldown when a new run has begun.
 

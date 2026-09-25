@@ -115,6 +115,24 @@ class EvasiveTeacherTests(unittest.TestCase):
 
         teacher.feedback(label, frames=1)
 
+    def test_advance_expires_cooldown_without_creating_a_decision(self) -> None:
+        teacher = EvasiveTeacher(EvasivePolicy(bomb_cooldown_frames=2))
+        observation = self.dangerous_observation()
+        bomb = teacher.annotate(observation)
+        teacher.feedback(bomb, frames=1)
+
+        teacher.advance(frames=2)
+        ready = teacher.annotate(observation)
+
+        self.assertTrue(ready.bomb)
+
+    def test_advance_refuses_to_break_an_annotation_pair(self) -> None:
+        teacher = EvasiveTeacher()
+        teacher.annotate(self.dangerous_observation())
+
+        with self.assertRaisesRegex(RuntimeError, "feedback"):
+            teacher.advance(frames=1)
+
 
 if __name__ == "__main__":
     unittest.main()

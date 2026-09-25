@@ -50,6 +50,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
             np.asarray(ActionSpec().shape, dtype=np.int64)
         )
         self._observation: Observation | None = None
+        self._frames_since_bomb: int | None = None
         self._decisions = 0
         self._episode_done = False
 
@@ -64,6 +65,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         del options
         observation = self.env.reset()
         self._observation = observation
+        self._frames_since_bomb = None
         self._decisions = 0
         self._episode_done = False
         return self._encode(observation), self._info({}, delta_frames=0)
@@ -108,6 +110,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 break
 
         self._decisions += 1
+        self._advance_bomb_history(bomb=bool(model_action.bomb), frames=delta_frames)
         truncated = (
             not terminated
             and self.max_steps is not None
@@ -144,9 +147,9 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         previous_frames = self.env.frames
         observation = self.env.pause()
         self._observation = observation
-        return self._encode(observation), self._info(
-            {}, delta_frames=self.env.frames - previous_frames
-        )
+        delta_frames = self.env.frames - previous_frames
+        self._advance_bomb_history(bomb=False, frames=delta_frames)
+        return self._encode(observation), self._info({}, delta_frames=delta_frames)
 
     def resume(self) -> tuple[np.ndarray, dict[str, object]]:
         """Leave a verified pause and return the first live feature vector."""
@@ -154,13 +157,18 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         previous_frames = self.env.frames
         observation = self.env.resume()
         self._observation = observation
-        return self._encode(observation), self._info(
-            {}, delta_frames=self.env.frames - previous_frames
-        )
+        delta_frames = self.env.frames - previous_frames
+        self._advance_bomb_history(bomb=False, frames=delta_frames)
+        return self._encode(observation), self._info({}, delta_frames=delta_frames)
 
     def close(self) -> None:
         """Close the core environment this adapter built."""
         self.env.close()
+
+    def stop(self) -> None:
+        """Interrupt the current episode and release any held game input."""
+        self.env.stop()
+        self._episode_done = True
 
     @property
     def raw_observation(self) -> Observation:
@@ -174,8 +182,24 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
             raise RuntimeError("reset() must be called before reading raw_observation")
         return self._observation
 
+    @property
+    def frames_since_bomb(self) -> int | None:
+        """Measured game frames since the learner's latest bomb, if any."""
+        return self._frames_since_bomb
+
     def _encode(self, observation: Observation) -> np.ndarray:
-        return np.asarray(self.encoder.encode(observation), dtype=np.float32)
+        return np.asarray(
+            self.encoder.encode(
+                observation, frames_since_bomb=self._frames_since_bomb
+            ),
+            dtype=np.float32,
+        )
+
+    def _advance_bomb_history(self, *, bomb: bool, frames: int) -> None:
+        if bomb:
+            self._frames_since_bomb = max(0, frames - 1)
+        elif self._frames_since_bomb is not None:
+            self._frames_since_bomb += frames
 
     def _require_live_episode(self, operation: str) -> None:
         if self._observation is None:
@@ -199,6 +223,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 "steps": self._decisions,
                 "frames": self.env.frames,
                 "delta_frames": delta_frames,
+                "frames_since_bomb": self._frames_since_bomb,
             }
         )
         return result

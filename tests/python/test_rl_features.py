@@ -65,6 +65,7 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
             0.5,
             0.4,
             0.0,
+            1.0,
             0.5,
             0.5,
             0.5,
@@ -169,7 +170,35 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
             )
         )
 
-        self.assertGreater(many[7], one[7])
+        self.assertGreater(many[8], one[8])
+
+    def test_bomb_history_distinguishes_a_recent_bomb_from_a_ready_one(self) -> None:
+        encoder = MemoryFeatureEncoder(
+            FeatureSpec(
+                max_enemies=0,
+                max_bullets=0,
+                max_lasers=0,
+                max_resources=0,
+            )
+        )
+        observation = observe(make_snapshot())
+
+        never = encoder.encode(observation)
+        recent = encoder.encode(observation, frames_since_bomb=0)
+        ready = encoder.encode(observation, frames_since_bomb=240)
+
+        self.assertEqual(never[6], 1.0)
+        self.assertEqual(recent[6], -1.0)
+        self.assertEqual(ready[6], 1.0)
+
+    def test_bomb_history_rejects_invalid_ages(self) -> None:
+        encoder = MemoryFeatureEncoder()
+        observation = observe(make_snapshot())
+
+        with self.assertRaises(ValueError):
+            encoder.encode(observation, frames_since_bomb=-1)
+        with self.assertRaises(TypeError):
+            encoder.encode(observation, frames_since_bomb=True)
 
 
 if __name__ == "__main__":

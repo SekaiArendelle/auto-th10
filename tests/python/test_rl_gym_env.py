@@ -65,7 +65,13 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertTrue(
             np.array_equal(
                 encoded,
-                np.asarray(env.encoder.encode(env.raw_observation), dtype=np.float32),
+                np.asarray(
+                    env.encoder.encode(
+                        env.raw_observation,
+                        frames_since_bomb=env.frames_since_bomb,
+                    ),
+                    dtype=np.float32,
+                ),
             )
         )
 
@@ -128,6 +134,24 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertFalse(session.inputs[1] & Action.BOMB)
         self.assertTrue(session.inputs[2] & Action.BOMB)
         self.assertFalse(session.inputs[3] & Action.BOMB)
+
+    def test_bomb_history_uses_actual_elapsed_frames(self) -> None:
+        session = FakeSession(frame_step=2)
+        env = self.make_env(session, action_repeat=2)
+        initial, _ = env.reset()
+
+        after_bomb, _, _, _, bomb_info = env.step(
+            np.asarray([0, 1], dtype=np.int64)
+        )
+        later, _, _, _, later_info = env.step(
+            np.asarray([0, 0], dtype=np.int64)
+        )
+
+        self.assertEqual(initial[6], 1.0)
+        self.assertEqual(bomb_info["delta_frames"], 4)
+        self.assertEqual(bomb_info["frames_since_bomb"], 3)
+        self.assertEqual(later_info["frames_since_bomb"], 7)
+        self.assertLess(after_bomb[6], later[6])
 
     def test_action_repeat_accumulates_frames_but_penalizes_a_bomb_once(self) -> None:
         session = FakeSession(
