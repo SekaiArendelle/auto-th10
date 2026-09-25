@@ -198,6 +198,20 @@ pixi run python -m training.train --iterations 100
 pixi run python -m training.evaluate_model --checkpoint runs/dagger.pt
 ```
 
+Training writes a separate timestamped TensorBoard run below
+`runs/tensorboard/`. Start the monitoring page in another terminal and open
+`http://localhost:6006/`:
+
+```powershell
+pixi run tensorboard --logdir runs/tensorboard
+```
+
+The dashboard separates imitation losses, DAgger state, rollout behavior and
+completed-episode results. Use `--tensorboard-dir PATH` to put the timestamped
+run under a different root, then pass that same root to
+`pixi run tensorboard --logdir PATH`. The console summary remains available for
+quick checks.
+
 `--iterations` defaults to `inf`: the run then ends only when the game refuses
 to play (`NotInStage`) or at Ctrl+C, which names the iteration it stopped in.
 Held input is released either way, and an interrupt during an update leaves the
@@ -254,7 +268,9 @@ itself.
   scripted baseline and the Gymnasium adapter.
 - `training/train.py` - the online DAgger entry point. It decays the probability
   of executing teacher actions and atomically writes model, optimizer and schema
-  metadata to `runs/dagger.pt` after every iteration.
+  metadata to `runs/dagger.pt` after every iteration. It also writes losses,
+  rollout behavior, completed-episode results and run hyperparameters for
+  TensorBoard.
 - `training/evaluate_model.py` - deterministic checkpoint evaluation. The model
   alone controls movement and bomb; the evasive teacher only labels those same
   states so the report can include movement agreement and bomb precision/recall

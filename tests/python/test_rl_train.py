@@ -23,6 +23,14 @@ class _FakeEnv:
 
 
 class TrainEntryPointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.writer = mock.Mock()
+        patcher = mock.patch.object(
+            train, "SummaryWriter", return_value=self.writer
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_defaults_run_forever_with_a_fixed_horizon_dagger_rollout(self) -> None:
         args = train.build_parser().parse_args([])
 
@@ -31,6 +39,7 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertEqual(args.beta, 1.0)
         self.assertEqual(args.beta_min, 0.05)
         self.assertEqual(args.checkpoint, train.DEFAULT_CHECKPOINT)
+        self.assertEqual(args.tensorboard_dir, train.DEFAULT_TENSORBOARD_ROOT)
 
     def test_iterations_counts_from_one_and_inf_has_no_last(self) -> None:
         self.assertEqual(list(train._iteration_range(3)), [1, 2, 3])
@@ -57,7 +66,9 @@ class TrainEntryPointTests(unittest.TestCase):
     def test_a_finite_run_stops_after_its_iterations(self) -> None:
         env = _FakeEnv()
         iteration = SimpleNamespace(
-            rollout=SimpleNamespace(terminated=False, truncated=False),
+            rollout=SimpleNamespace(
+                samples=(), terminated=False, truncated=False
+            ),
             next_features="features",
         )
 
@@ -70,6 +81,87 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(run.call_count, 2)
         self.assertTrue(env.closed)
+        self.writer.close.assert_called_once_with()
+
+    def test_iteration_metrics_are_grouped_for_tensorboard(self) -> None:
+        updates = (
+            SimpleNamespace(total=4.0, movement=3.0, bomb=1.0),
+            SimpleNamespace(total=2.0, movement=1.0, bomb=1.0),
+        )
+        samples = (
+            SimpleNamespace(
+                reward=1.5,
+                frames=2,
+                learner_action=SimpleNamespace(movement=3),
+                teacher_action=SimpleNamespace(movement=3, bomb=True),
+                used_teacher=True,
+            ),
+            SimpleNamespace(
+                reward=-0.5,
+                frames=1,
+                learner_action=SimpleNamespace(movement=2),
+                teacher_action=SimpleNamespace(movement=4, bomb=False),
+                used_teacher=False,
+            ),
+        )
+        rollout = SimpleNamespace(
+            samples=samples, terminated=False, truncated=False
+        )
+
+        train._log_update_metrics(
+            self.writer,
+            iteration=7,
+            beta=0.25,
+            buffer_size=50,
+            updates=updates,
+        )
+        train._log_rollout_metrics(self.writer, rollout, iteration=7)
+
+        self.writer.add_scalar.assert_has_calls(
+            (
+                mock.call("loss/total", 3.0, 7),
+                mock.call("loss/movement", 2.0, 7),
+                mock.call("loss/bomb", 1.0, 7),
+                mock.call("rollout/reward", 1.0, 7),
+                mock.call("rollout/steps", 2, 7),
+                mock.call("rollout/frames", 3, 7),
+                mock.call("rollout/movement_agreement", 0.5, 7),
+                mock.call("rollout/bomb_label_rate", 0.5, 7),
+                mock.call("rollout/teacher_execution_rate", 0.5, 7),
+            ),
+            any_order=True,
+        )
+
+    def test_episode_frames_use_the_environment_total_across_rollouts(self) -> None:
+        first = SimpleNamespace(
+            samples=(
+                SimpleNamespace(
+                    reward=1.0,
+                    episode_frames=100,
+                    executed_action=SimpleNamespace(bomb=False),
+                ),
+            )
+        )
+        second = SimpleNamespace(
+            samples=(
+                SimpleNamespace(
+                    reward=2.0,
+                    episode_frames=205,
+                    executed_action=SimpleNamespace(bomb=True),
+                ),
+            )
+        )
+
+        reward, frames, bombs = train._accumulate_episode(
+            first, reward=0.0, frames=0, bombs=0
+        )
+        reward, frames, bombs = train._accumulate_episode(
+            second, reward=reward, frames=frames, bombs=bombs
+        )
+
+        self.assertEqual(reward, 3.0)
+        self.assertEqual(frames, 205)
+        self.assertEqual(bombs, 1)
 
     def test_an_interrupted_run_reports_the_iteration_it_stopped_in(self) -> None:
         env = _FakeEnv()

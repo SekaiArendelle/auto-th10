@@ -87,6 +87,8 @@ class DaggerTests(unittest.TestCase):
         self.assertTrue(sample.teacher_action.bomb)
         self.assertFalse(sample.learner_action.bomb)
         self.assertEqual(sample.executed_action, sample.teacher_action)
+        self.assertTrue(sample.used_teacher)
+        self.assertEqual(sample.episode_frames, 1)
         self.assertTrue(session.inputs[0] & Action.BOMB)
 
     def test_beta_zero_leaves_control_with_the_learner(self) -> None:
@@ -108,6 +110,7 @@ class DaggerTests(unittest.TestCase):
 
         sample = rollout.samples[0]
         self.assertEqual(sample.executed_action, sample.learner_action)
+        self.assertFalse(sample.used_teacher)
         self.assertFalse(session.inputs[0] & Action.BOMB)
         next_label = teacher.annotate(env.raw_observation)
         self.assertTrue(next_label.bomb)
@@ -159,7 +162,7 @@ class DaggerTests(unittest.TestCase):
             batch_size=2,
             update_steps=1,
             rng=random.Random(3),
-            after_updates=lambda updates: callback_pause_states.append(
+            after_updates=lambda rollout, updates: callback_pause_states.append(
                 session.paused
             ),
         )

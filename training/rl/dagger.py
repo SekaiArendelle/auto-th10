@@ -36,8 +36,10 @@ class DaggerSample:
     teacher_action: ModelAction
     learner_action: ModelAction
     executed_action: ModelAction
+    used_teacher: bool
     reward: float
     frames: int
+    episode_frames: int
     terminated: bool
     truncated: bool
 
@@ -178,8 +180,10 @@ def collect_dagger_rollout(
                     teacher_action=teacher_action,
                     learner_action=learner_action,
                     executed_action=executed_action,
+                    used_teacher=use_teacher,
                     reward=float(reward),
                     frames=frames,
+                    episode_frames=int(info["frames"]),
                     terminated=terminated,
                     truncated=truncated,
                 )
@@ -218,7 +222,10 @@ def run_dagger_iteration(
     bomb_fraction: float = 0.25,
     bomb_positive_weight: float = 8.0,
     rng: random.Random,
-    after_updates: Callable[[tuple[ImitationMetrics, ...]], None] | None = None,
+    after_updates: Callable[
+        [DaggerRollout, tuple[ImitationMetrics, ...]], None
+    ]
+    | None = None,
 ) -> DaggerIteration:
     """Collect a horizon, pause a live game, update, then safely resume it."""
     if env.max_steps is not None:
@@ -265,7 +272,7 @@ def run_dagger_iteration(
             )
         update_results = tuple(updates)
         if after_updates is not None:
-            after_updates(update_results)
+            after_updates(rollout, update_results)
     except BaseException:
         # A failed update deliberately leaves a live game paused. Resuming in a
         # finally block would let it run unattended while the failure unwinds.

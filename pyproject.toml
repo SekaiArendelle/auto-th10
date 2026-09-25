@@ -11,7 +11,7 @@ requires-python = ">=3.14"
 license = { file = "LICENSE" }
 
 [project.optional-dependencies]
-train = ["gymnasium>=1.0", "numpy>=2.3.2", "torch>=2.9"]
+train = ["gymnasium>=1.0", "numpy>=2.3.2", "torch>=2.9", "tensorboard>=2.21"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"
