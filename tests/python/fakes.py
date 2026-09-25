@@ -118,6 +118,8 @@ class FakeSession:
         screen_cursor: int = 0,
         screen_error: Exception | None = None,
         refuse_cursor_writes: bool = False,
+        accept_pause: bool = True,
+        accept_resume: bool = True,
     ) -> None:
         self._scenes = list(scenes) or [DEFAULT_SCENE]
         self._snapshots = list(snapshots) or [make_snapshot()]
@@ -133,6 +135,9 @@ class FakeSession:
         self.screen_cursor = screen_cursor
         self.screen_error = screen_error
         self.refuse_cursor_writes = refuse_cursor_writes
+        self.accept_pause = accept_pause
+        self.accept_resume = accept_resume
+        self.paused = False
         self.inputs: list[object] = []
         self.focus_calls = 0
         self.closed = False
@@ -161,7 +166,8 @@ class FakeSession:
             return self._frame_values[0]
         if self._freeze_after and self._frame_reads > self._freeze_after:
             self._frame_step = 0
-        self._frame_value += self._frame_step
+        if not self.paused:
+            self._frame_value += self._frame_step
         return self._frame_value
 
     def set_input(self, action: object) -> None:
@@ -180,7 +186,17 @@ class FakeSession:
         value = int(action)
         if value == int(Action.NONE):
             return
-        if self.screen_kind is ScreenKind.NAME_ENTRY:
+        if value == int(Action.ESCAPE) and self.screen_kind is ScreenKind.STAGE:
+            if self.accept_pause:
+                self.paused = True
+                self.screen_kind = ScreenKind.MENU
+                self.screen_cursor = 0
+        elif value == int(Action.SHOOT) and self.paused:
+            if self.accept_resume:
+                self.paused = False
+                self.screen_kind = ScreenKind.STAGE
+                self.screen_cursor = 0
+        elif self.screen_kind is ScreenKind.NAME_ENTRY:
             self._apply_grid(value)
         elif self.screen_kind is ScreenKind.MENU:
             if value == int(Action.DOWN):

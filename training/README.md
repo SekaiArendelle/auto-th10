@@ -79,7 +79,20 @@ Entering a stage is a deliberate hole rather than an unfinished one: a script th
 walks menus has to know how many presses each screen takes and what they select,
 and a wrong guess lands in a shot type or a difficulty nobody chose. The
 environment therefore refuses to run anywhere but in a playing stage, raising
-`NotInStage` for the menu, the pause menu and an unknown screen.
+`NotInStage` for the menu, a pause menu it did not open and an unknown screen.
+
+`Th10Env.pause()` is the controlled exception used at an in-memory trainer's
+rollout boundary. It releases the policy's held action, focuses the window, taps
+`ESCAPE`, and returns only after the stage clock has stayed frozen for a full
+sample interval and the pause cursor has been read on `Return to Game`. Its
+matching `resume()` focuses the window and rechecks the stage family, live run,
+unchanged frozen clock, menu and cursor before tapping `SHOOT`, then waits for the
+clock and snapshots to become live. Both return the observation at their verified
+side of the boundary; `MemoryGymEnv` encodes and exposes those values so the
+trainer never reaches through it to the session. If confirmation fails after an
+input, the environment is interrupted rather than guessing where that input
+landed. Calling `reset()` while paused refuses without discarding this boundary,
+so the caller can still resume it safely.
 
 The game over menu is walked for the same reason. Its cursor opens on
 `Quit and Return to Select`, so a driver that only keeps pressing `<Z>` retreats to

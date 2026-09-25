@@ -2,9 +2,10 @@
 
 The environment drives only what it has to. It starts from a stage the player is
 already in, and it refuses to touch the game from anywhere else - entering a
-stage, picking a shot type and leaving the pause menu stay with the player,
-because those are choices a script has no business making. That boundary is what
-keeps a wrong key press from landing on a menu.
+stage and picking a shot type stay with the player, because those are choices a
+script has no business making. The one menu it drives is the pause menu it opened
+itself, after checking that its safe default entry has not moved. That boundary is
+what keeps a wrong key press from landing on another menu.
 
 It asks the game's own data rather than a summary of it: the screen family (one
 read, no waiting), the snapshot (the run's numbers) and the stage frame counter,
@@ -125,6 +126,7 @@ class Transition:
 class _Phase(Enum):
     NEW = auto()
     RUNNING = auto()
+    PAUSED = auto()
     ENDED = auto()
     INTERRUPTED = auto()
     CLOSED = auto()
@@ -191,6 +193,8 @@ class Th10Env:
         """
         if self._phase is _Phase.CLOSED:
             raise RuntimeError("the environment is closed")
+        if self._phase is _Phase.PAUSED:
+            raise NotInStage("the episode is paused: call resume() before reset()")
         continuing = self._phase is not _Phase.NEW
         if self._phase is _Phase.RUNNING:
             self.session.set_input(Action.NONE)
@@ -267,6 +271,62 @@ class Th10Env:
             terminated=snapshot.game_over,
         )
 
+    def pause(self) -> Observation:
+        """Pause a running episode and return the observation at the frozen clock.
+
+        The action held by the policy is released before ESC is pressed. Success
+        means more than sending that key: the stage clock must stop, the run must
+        still be alive, and the pause menu must be on its safe first entry. A
+        caller may therefore do arbitrary CPU work only after this method returns.
+        """
+        if self._phase is not _Phase.RUNNING:
+            raise NotInStage("the episode is not running: call reset() before pause()")
+        try:
+            self.session.set_input(Action.NONE)
+            self.session.focus()
+            restart.tap(self.session, Action.ESCAPE, seconds=restart.TAP_SECONDS)
+            stage_frames = self._wait_until_paused()
+            snapshot = self._look()
+            if snapshot is None or snapshot.game_over:
+                raise NotInStage("the run ended while the pause menu was opening")
+        except BaseException:
+            self._phase = _Phase.INTERRUPTED
+            self._release_input()
+            raise
+        self._advance_frame_count(stage_frames)
+        self._snapshot = snapshot
+        self._phase = _Phase.PAUSED
+        return Observation(snapshot=snapshot)
+
+    def resume(self) -> Observation:
+        """Resume this environment's pause and return the first live observation.
+
+        Z is only safe while the pause cursor remains on ``Return to Game``. The
+        cursor is checked immediately before the press, and success is not
+        reported until the stage clock advances again and a live snapshot can be
+        read. If either input leaves the outcome uncertain, the episode becomes
+        interrupted and reset() is required before any later action.
+        """
+        if self._phase is not _Phase.PAUSED:
+            raise NotInStage("the episode is not paused: call pause() before resume()")
+        try:
+            self.session.focus()
+            self._require_own_pause()
+        except BaseException:
+            self._phase = _Phase.INTERRUPTED
+            raise
+        try:
+            restart.tap(self.session, Action.SHOOT, seconds=restart.TAP_SECONDS)
+            stage_frames, snapshot = self._wait_until_resumed()
+        except BaseException:
+            self._phase = _Phase.INTERRUPTED
+            self._release_input()
+            raise
+        self._advance_frame_count(stage_frames)
+        self._snapshot = snapshot
+        self._phase = _Phase.RUNNING
+        return Observation(snapshot=snapshot)
+
     @property
     def frames(self) -> int:
         """How many stage frames the current episode has covered.
@@ -293,7 +353,7 @@ class Th10Env:
 
     def stop(self) -> None:
         """Release held input and require reset() before another action."""
-        if self._phase is not _Phase.RUNNING:
+        if self._phase not in (_Phase.RUNNING, _Phase.PAUSED):
             return
         self._phase = _Phase.INTERRUPTED
         self.session.set_input(Action.NONE)
@@ -408,6 +468,67 @@ class Th10Env:
                     "the game is paused, loading, or gone"
                 )
             time.sleep(self.poll_seconds)
+
+    def _wait_until_paused(self) -> int:
+        """Return the clock value after a full sample interval without progress."""
+        deadline = time.monotonic() + self.frame_timeout_s
+        earlier = self.session.stage_frames()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise NotInStage(
+                    f"the stage did not pause within {self.frame_timeout_s:g} s"
+                )
+            time.sleep(min(PAUSE_SAMPLE_SECONDS, remaining))
+            current = self.session.stage_frames()
+            if current == earlier:
+                screen = self.session.screen()
+                if screen.kind is ScreenKind.MENU and screen.cursor == 0:
+                    return current
+                if screen.kind is ScreenKind.MENU:
+                    raise NotInStage(
+                        "the pause menu opened away from Return to Game"
+                    )
+            if self.session.scene() is not Scene.STAGE:
+                raise NotInStage("the game left the stage while pausing")
+            earlier = current
+
+    def _wait_until_resumed(self) -> tuple[int, Snapshot]:
+        """Return the first live snapshot after the paused clock advances."""
+        deadline = time.monotonic() + self.frame_timeout_s
+        while True:
+            frames = self.session.stage_frames()
+            if frames != self._stage_frames:
+                snapshot = self._look()
+                if snapshot is not None and not snapshot.game_over:
+                    return frames, snapshot
+                if snapshot is not None:
+                    raise NotInStage("the run ended while leaving the pause menu")
+            if self.session.scene() is not Scene.STAGE:
+                raise NotInStage("the game left the stage while resuming")
+            if time.monotonic() >= deadline:
+                raise NotInStage(
+                    f"the stage did not resume within {self.frame_timeout_s:g} s"
+                )
+            time.sleep(self.poll_seconds)
+
+    def _require_own_pause(self) -> None:
+        """Refuse to press Z unless the game is still at our frozen boundary."""
+        if self.session.scene() is not Scene.STAGE:
+            raise NotInStage("the game left the paused stage: resume it manually")
+        snapshot = self._look()
+        if snapshot is None or snapshot.game_over:
+            raise NotInStage("the paused run is no longer live: resume it manually")
+        frames = self.session.stage_frames()
+        if frames != self._stage_frames:
+            raise NotInStage(
+                "the stage clock moved after pause(): resume the game manually"
+            )
+        screen = self.session.screen()
+        if screen.kind is not ScreenKind.MENU or screen.cursor != 0:
+            raise NotInStage(
+                "the pause menu is not on Return to Game: resume it manually"
+            )
 
     def _advance_frame_count(self, stage_frames: int) -> int:
         """Accumulate a raw stage clock that can restart between stages."""

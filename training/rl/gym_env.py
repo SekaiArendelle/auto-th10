@@ -62,8 +62,6 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         """Start a game episode and return its fixed memory feature vector."""
         super().reset(seed=seed)
         del options
-        if self._observation is not None:
-            self.env.session.set_input(Action.NONE)
         observation = self.env.reset()
         self._observation = observation
         self._decisions = 0
@@ -140,12 +138,40 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
             result_info,
         )
 
+    def pause(self) -> tuple[np.ndarray, dict[str, object]]:
+        """Freeze a live rollout at a verified pause-menu boundary."""
+        self._require_live_episode("pause")
+        previous_frames = self.env.frames
+        observation = self.env.pause()
+        self._observation = observation
+        return self._encode(observation), self._info(
+            {}, delta_frames=self.env.frames - previous_frames
+        )
+
+    def resume(self) -> tuple[np.ndarray, dict[str, object]]:
+        """Leave a verified pause and return the first live feature vector."""
+        self._require_live_episode("resume")
+        previous_frames = self.env.frames
+        observation = self.env.resume()
+        self._observation = observation
+        return self._encode(observation), self._info(
+            {}, delta_frames=self.env.frames - previous_frames
+        )
+
     def close(self) -> None:
         """Close the core environment this adapter built."""
         self.env.close()
 
     def _encode(self, observation: Observation) -> np.ndarray:
         return np.asarray(self.encoder.encode(observation), dtype=np.float32)
+
+    def _require_live_episode(self, operation: str) -> None:
+        if self._observation is None:
+            raise RuntimeError(f"reset() must be called before {operation}()")
+        if self._episode_done:
+            raise RuntimeError(
+                f"reset() must be called after the episode ends, before {operation}()"
+            )
 
     def _info(
         self, info: Mapping[str, object], *, delta_frames: int

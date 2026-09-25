@@ -13,6 +13,7 @@ from auto_th10 import (
     Settings,
 )
 from auto_th10 import restart as restart_module
+from auto_th10 import env as env_module
 from fakes import FakeSession, make_environment, make_snapshot
 
 
@@ -275,7 +276,6 @@ class StepTests(unittest.TestCase):
 
         with self.assertRaises(NotInStage):
             env.step(Action.NONE)
-
         self.assertEqual(session.inputs, [])
 
     def test_a_failed_step_requires_another_reset(self) -> None:
@@ -442,6 +442,156 @@ class StepTests(unittest.TestCase):
         self.assertEqual(transition.frames, 0)
 
         with self.assertRaises(NotInStage):
+            env.step(Action.NONE)
+
+
+class PauseTests(NoWaiting, unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch.object(env_module, "PAUSE_SAMPLE_SECONDS", 0.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_pause_releases_input_and_confirms_the_frozen_observation(self) -> None:
+        session = FakeSession(
+            snapshots=(make_snapshot(score=10), make_snapshot(score=25)),
+        )
+        env = make_environment(session)
+        env.reset()
+        env.step(Action.RIGHT | Action.SHOOT)
+
+        observation = env.pause()
+
+        self.assertEqual(observation.snapshot.score, 25)
+        self.assertEqual(
+            session.inputs[-3:], [Action.NONE, Action.ESCAPE, Action.NONE]
+        )
+        self.assertTrue(session.paused)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_pause_interrupts_when_escape_does_not_freeze_the_stage(self) -> None:
+        session = FakeSession(accept_pause=False)
+        env = make_environment(session, frame_timeout_s=0.01)
+        env.reset()
+
+        with self.assertRaisesRegex(NotInStage, "did not pause"):
+            env.pause()
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_pause_refuses_a_menu_that_opens_on_an_unsafe_entry(self) -> None:
+        class MovedPauseCursorSession(FakeSession):
+            def _apply(self, action: object) -> None:
+                super()._apply(action)
+                if action == Action.ESCAPE and self.paused:
+                    self.screen_cursor = 1
+
+        session = MovedPauseCursorSession()
+        env = make_environment(session)
+        env.reset()
+
+        with self.assertRaisesRegex(NotInStage, "away from Return to Game"):
+            env.pause()
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_resume_checks_the_cursor_before_sending_z(self) -> None:
+        session = FakeSession()
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+        session.screen_cursor = 1
+        inputs_before_resume = list(session.inputs)
+
+        with self.assertRaisesRegex(NotInStage, "Return to Game"):
+            env.resume()
+
+        self.assertEqual(session.inputs, inputs_before_resume)
+        self.assertTrue(session.paused)
+
+    def test_resume_refuses_a_title_menu_without_sending_z(self) -> None:
+        session = FakeSession(scenes=(Scene.STAGE, Scene.MENU))
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+        inputs_before_resume = list(session.inputs)
+
+        with self.assertRaisesRegex(NotInStage, "left the paused stage"):
+            env.resume()
+
+        self.assertEqual(session.inputs, inputs_before_resume)
+
+    def test_resume_refuses_a_game_over_menu_without_sending_z(self) -> None:
+        session = FakeSession()
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+        session._snapshots = [make_snapshot(game_over=True)]
+        inputs_before_resume = list(session.inputs)
+
+        with self.assertRaisesRegex(NotInStage, "no longer live"):
+            env.resume()
+
+        self.assertEqual(session.inputs, inputs_before_resume)
+
+    def test_resume_refuses_a_pause_whose_saved_clock_has_moved(self) -> None:
+        session = FakeSession()
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+        session._frame_value += 1
+        inputs_before_resume = list(session.inputs)
+
+        with self.assertRaisesRegex(NotInStage, "clock moved"):
+            env.resume()
+
+        self.assertEqual(session.inputs, inputs_before_resume)
+
+    def test_reset_during_pause_is_rejected_without_losing_the_pause(self) -> None:
+        session = FakeSession()
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+
+        with self.assertRaisesRegex(NotInStage, "call resume"):
+            env.reset()
+
+        observation = env.resume()
+        self.assertFalse(session.paused)
+        self.assertEqual(env.step(Action.NONE).observation, observation)
+
+    def test_resume_confirms_progress_and_returns_the_live_observation(self) -> None:
+        session = FakeSession(
+            snapshots=(make_snapshot(score=10), make_snapshot(score=20)),
+        )
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+
+        observation = env.resume()
+
+        self.assertEqual(observation.snapshot.score, 20)
+        self.assertEqual(session.inputs[-2:], [Action.SHOOT, Action.NONE])
+        self.assertFalse(session.paused)
+        transition = env.step(Action.RIGHT)
+        self.assertEqual(transition.observation, observation)
+
+    def test_resume_interrupts_when_z_does_not_restart_the_clock(self) -> None:
+        session = FakeSession(accept_resume=False)
+        env = make_environment(session, frame_timeout_s=0.01)
+        env.reset()
+        env.pause()
+
+        with self.assertRaisesRegex(NotInStage, "did not resume"):
+            env.resume()
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
             env.step(Action.NONE)
 
 

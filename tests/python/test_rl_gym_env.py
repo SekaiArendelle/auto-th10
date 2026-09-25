@@ -155,6 +155,58 @@ class MemoryGymEnvTests(unittest.TestCase):
 
         self.assertEqual(session.inputs, [])
 
+    def test_pause_and_resume_return_their_verified_feature_vectors(self) -> None:
+        session = FakeSession(
+            snapshots=(
+                make_snapshot(score=10, player=(1.0, 2.0)),
+                make_snapshot(score=20, player=(3.0, 4.0)),
+            )
+        )
+        env = self.make_env(session)
+        initial, _ = env.reset()
+
+        paused, pause_info = env.pause()
+        resumed, resume_info = env.resume()
+
+        self.assertTrue(env.observation_space.contains(paused))
+        self.assertTrue(env.observation_space.contains(resumed))
+        self.assertFalse(np.array_equal(initial, paused))
+        self.assertTrue(np.array_equal(paused, resumed))
+        self.assertGreaterEqual(pause_info["delta_frames"], 0)
+        self.assertGreater(resume_info["delta_frames"], 0)
+        env.step(np.asarray([0, 0], dtype=np.int64))
+
+    def test_pause_requires_a_live_episode(self) -> None:
+        env = self.make_env(FakeSession())
+
+        with self.assertRaisesRegex(RuntimeError, "before pause"):
+            env.pause()
+
+    def test_reset_during_pause_preserves_the_resumable_boundary(self) -> None:
+        session = FakeSession()
+        env = self.make_env(session)
+        env.reset()
+        env.pause()
+
+        with self.assertRaisesRegex(RuntimeError, "call resume"):
+            env.reset()
+
+        observation, _ = env.resume()
+        self.assertTrue(env.observation_space.contains(observation))
+        self.assertFalse(session.paused)
+
+    def test_close_from_a_pause_does_not_resume_the_game(self) -> None:
+        session = FakeSession()
+        env = self.make_env(session)
+        env.reset()
+        env.pause()
+
+        env.close()
+
+        self.assertTrue(session.paused)
+        self.assertEqual(session.inputs[-1], Action.NONE)
+        self.assertTrue(session.closed)
+
     def test_close_releases_input_and_closes_the_session(self) -> None:
         session = FakeSession()
         env = self.make_env(session)
