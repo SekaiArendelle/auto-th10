@@ -558,11 +558,14 @@ class Th10Env:
         pause that opened onto it is refused rather than waited through: it is
         not a boundary this layer may press Z from.
 
-        A death can make ESCAPE a no-op before the menu appears. Checking the
-        snapshot while waiting distinguishes that terminal boundary from a lost
-        pause input; an unreadable or live snapshot does not weaken the timeout.
+        A death can make ESCAPE a no-op before the menu appears. The run-over
+        stage page becomes visible before `lives` necessarily reaches -1, so it
+        switches this wait to the longer stage-transition budget; the terminal
+        snapshot still has to confirm the boundary before it is returned. No
+        second key is sent during that transition.
         """
         deadline = time.monotonic() + self.frame_timeout_s
+        terminal_deadline: float | None = None
         while True:
             screen = self.session.screen()
             if screen.kind is ScreenKind.PAUSE_MENU:
@@ -573,12 +576,20 @@ class Th10Env:
                 return self.session.stage_frames(), None
             if screen.kind is ScreenKind.PAUSE_CONFIRM:
                 raise NotInStage("the pause menu opened its Retry confirmation")
+            if screen.kind is ScreenKind.STAGE and terminal_deadline is None:
+                terminal_deadline = time.monotonic() + self.transition_timeout_s
             if self.session.scene() is not Scene.STAGE:
                 raise NotInStage("the game left the stage while pausing")
             snapshot = self._look()
             if snapshot is not None and snapshot.game_over:
                 return self.session.stage_frames(), snapshot
-            if time.monotonic() >= deadline:
+            now = time.monotonic()
+            if terminal_deadline is not None and now >= terminal_deadline:
+                raise NotInStage(
+                    "the game-over snapshot did not become ready within "
+                    f"{self.transition_timeout_s:g} s"
+                )
+            if terminal_deadline is None and now >= deadline:
                 raise NotInStage(
                     f"the stage did not pause within {self.frame_timeout_s:g} s"
                 )

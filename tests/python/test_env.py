@@ -141,7 +141,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
         observation = make_environment(session, settings=TRAIN_PRESET).reset()
 
         self.assertEqual(observation.snapshot.score, 8)
-        self.assertIs(session.screen_kind, ScreenKind.STAGE)
+        self.assertIs(session.screen_kind, ScreenKind.UNKNOWN)
 
     def test_reset_handles_a_name_entry_that_appears_during_restart(self) -> None:
         # The run's game-over flag can become visible before the ranking installs
@@ -172,7 +172,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
         observation = env.reset()
 
         self.assertEqual(observation.snapshot.score, 8)
-        self.assertIs(session.screen_kind, ScreenKind.STAGE)
+        self.assertIs(session.screen_kind, ScreenKind.UNKNOWN)
         self.assertIn(Action.NONE, session.inputs)  # the previous episode's input was released
 
     def test_reset_refuses_a_stage_that_is_frozen(self) -> None:
@@ -192,7 +192,7 @@ class ResetTests(NoWaiting, unittest.TestCase):
         env.reset()
         env.step(Action.NONE)
 
-        self.assertIs(session.screen_kind, ScreenKind.STAGE)
+        self.assertIs(session.screen_kind, ScreenKind.UNKNOWN)
         self.assertIn(Action.SHOOT, session.inputs)
         self.assertEqual(env.steps, 1)
 
@@ -579,6 +579,41 @@ class PauseTests(NoWaiting, unittest.TestCase):
         with self.assertRaisesRegex(NotInStage, "call reset"):
             env.step(Action.NONE)
 
+    def test_run_over_screen_extends_the_wait_for_its_terminal_snapshot(self) -> None:
+        class DelayedGameOverSession(FakeSession):
+            def _apply(self, action: object) -> None:
+                if action == Action.ESCAPE:
+                    self.screen_kind = ScreenKind.STAGE
+                    return
+                super()._apply(action)
+
+        live = make_snapshot(lives=0)
+        terminal = make_snapshot(lives=-1, game_over=True)
+        session = DelayedGameOverSession(
+            snapshots=(live, live, terminal),
+            screen_kind=ScreenKind.UNKNOWN,
+        )
+        env = make_environment(
+            session,
+            frame_timeout_s=2.0,
+            transition_timeout_s=10.0,
+        )
+        env.reset()
+
+        with mock.patch.object(
+            env_module.time,
+            "monotonic",
+            side_effect=(0.0, 3.0, 6.0),
+        ):
+            observation = env.pause()
+
+        self.assertTrue(observation.snapshot.game_over)
+        self.assertFalse(session.paused)
+        self.assertEqual(
+            session.inputs,
+            [Action.NONE, Action.ESCAPE, Action.NONE],
+        )
+
     def test_an_unreadable_snapshot_while_pause_opens_is_still_refused(self) -> None:
         session = FakeSession(snapshot_gaps=(2,))
         env = make_environment(session)
@@ -739,6 +774,19 @@ class PauseTests(NoWaiting, unittest.TestCase):
         self.assertFalse(session.paused)
         transition = env.step(Action.RIGHT)
         self.assertEqual(transition.observation, observation)
+
+    def test_a_resumed_run_can_be_paused_again(self) -> None:
+        session = FakeSession()
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+        env.resume()
+
+        observation = env.pause()
+
+        self.assertFalse(observation.snapshot.game_over)
+        self.assertTrue(session.paused)
+        self.assertIs(session.screen_kind, ScreenKind.PAUSE_MENU)
 
     def test_resume_interrupts_when_z_does_not_restart_the_clock(self) -> None:
         session = FakeSession(accept_resume=False)

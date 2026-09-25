@@ -114,7 +114,7 @@ class FakeSession:
         no_stage_for: int = 0,
         snapshot_gaps: tuple[int, ...] = (),
         freeze_after: int = 0,
-        screen_kind: ScreenKind = ScreenKind.STAGE,
+        screen_kind: ScreenKind = ScreenKind.UNKNOWN,
         screen_cursor: int = 0,
         screen_error: Exception | None = None,
         refuse_cursor_writes: bool = False,
@@ -187,7 +187,7 @@ class FakeSession:
         value = int(action)
         if value == int(Action.NONE):
             return
-        if value == int(Action.ESCAPE) and self.screen_kind is ScreenKind.STAGE:
+        if value == int(Action.ESCAPE) and self.screen_kind is ScreenKind.UNKNOWN:
             if self.accept_pause:
                 self.paused = True
                 self.screen_kind = ScreenKind.PAUSE_MENU
@@ -195,7 +195,7 @@ class FakeSession:
         elif value == int(Action.SHOOT) and self.paused:
             if self.accept_resume:
                 self.paused = False
-                self.screen_kind = ScreenKind.STAGE
+                self.screen_kind = ScreenKind.UNKNOWN
                 self.screen_cursor = 0
         elif self.screen_kind is ScreenKind.NAME_ENTRY:
             self._apply_grid(value)
@@ -203,7 +203,7 @@ class FakeSession:
             if value == int(Action.DOWN):
                 self.screen_cursor = (self.screen_cursor + 1) % MENU_ENTRIES
             elif value == int(Action.SHOOT):
-                self.screen_kind = ScreenKind.STAGE  # 継続する starts the next run
+                self.screen_kind = ScreenKind.UNKNOWN  # 継続する starts the next run
                 self.screen_cursor = 0
         elif value == int(Action.SHOOT):
             # The ending wears no menu of its own: one confirm opens it, and it
