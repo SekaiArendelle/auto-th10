@@ -558,6 +558,27 @@ class PauseTests(NoWaiting, unittest.TestCase):
         with self.assertRaisesRegex(NotInStage, "call reset"):
             env.step(Action.NONE)
 
+    def test_a_run_ending_before_pause_opens_is_a_terminal_boundary(self) -> None:
+        session = FakeSession(
+            snapshots=(
+                make_snapshot(lives=0),
+                make_snapshot(lives=-1, game_over=True),
+            ),
+            accept_pause=False,
+        )
+        env = make_environment(session)
+        env.reset()
+
+        observation = env.pause()
+
+        self.assertTrue(observation.snapshot.game_over)
+        self.assertFalse(session.paused)
+        self.assertEqual(
+            session.inputs[-3:], [Action.NONE, Action.ESCAPE, Action.NONE]
+        )
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
     def test_an_unreadable_snapshot_while_pause_opens_is_still_refused(self) -> None:
         session = FakeSession(snapshot_gaps=(2,))
         env = make_environment(session)

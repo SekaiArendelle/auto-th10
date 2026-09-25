@@ -316,8 +316,9 @@ class Th10Env:
             self.session.set_input(Action.NONE)
             self.session.focus()
             restart.tap(self.session, Action.ESCAPE, seconds=restart.TAP_SECONDS)
-            stage_frames = self._wait_until_paused()
-            snapshot = self._look()
+            stage_frames, snapshot = self._wait_until_paused()
+            if snapshot is None:
+                snapshot = self._look()
             if snapshot is None:
                 raise NotInStage(
                     "the run became unavailable while the pause menu was opening"
@@ -544,8 +545,8 @@ class Th10Env:
                 )
             time.sleep(self.poll_seconds)
 
-    def _wait_until_paused(self) -> int:
-        """Wait for the pause menu to come up, then return the clock it stopped.
+    def _wait_until_paused(self) -> tuple[int, Snapshot | None]:
+        """Wait for the pause menu or a terminal snapshot at the boundary.
 
         The menu is a page of its own, so this polls the screen the game says it
         is driving rather than sampling the frame counter twice: the page coming
@@ -556,24 +557,31 @@ class Th10Env:
         behind `Retry This Game` is another page whose entry 0 is `Yes`, so a
         pause that opened onto it is refused rather than waited through: it is
         not a boundary this layer may press Z from.
+
+        A death can make ESCAPE a no-op before the menu appears. Checking the
+        snapshot while waiting distinguishes that terminal boundary from a lost
+        pause input; an unreadable or live snapshot does not weaken the timeout.
         """
         deadline = time.monotonic() + self.frame_timeout_s
         while True:
-            if time.monotonic() >= deadline:
-                raise NotInStage(
-                    f"the stage did not pause within {self.frame_timeout_s:g} s"
-                )
             screen = self.session.screen()
             if screen.kind is ScreenKind.PAUSE_MENU:
                 if screen.cursor != PAUSE_MENU_RESUME:
                     raise NotInStage(
                         "the pause menu opened away from Return to Game"
                     )
-                return self.session.stage_frames()
+                return self.session.stage_frames(), None
             if screen.kind is ScreenKind.PAUSE_CONFIRM:
                 raise NotInStage("the pause menu opened its Retry confirmation")
             if self.session.scene() is not Scene.STAGE:
                 raise NotInStage("the game left the stage while pausing")
+            snapshot = self._look()
+            if snapshot is not None and snapshot.game_over:
+                return self.session.stage_frames(), snapshot
+            if time.monotonic() >= deadline:
+                raise NotInStage(
+                    f"the stage did not pause within {self.frame_timeout_s:g} s"
+                )
             time.sleep(self.poll_seconds)
 
     def _wait_until_resumed(self) -> tuple[int, Snapshot]:

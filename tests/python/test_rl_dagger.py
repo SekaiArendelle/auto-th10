@@ -199,10 +199,10 @@ class DaggerTests(unittest.TestCase):
 
         self.assertTrue(ready.bomb)
 
-    def test_a_death_while_pause_opens_becomes_a_terminal_rollout(self) -> None:
+    def test_a_death_before_pause_opens_becomes_a_terminal_rollout(self) -> None:
         live = make_snapshot(lives=0)
         terminal = make_snapshot(lives=-1, game_over=True)
-        session = FakeSession(snapshots=(live, live, terminal))
+        session = FakeSession(snapshots=(live, live, terminal), accept_pause=False)
         env = self.make_env(session)
         features, _ = env.reset()
         model = ActorCritic(ModelSpec(features.size, hidden_sizes=(8,)))
