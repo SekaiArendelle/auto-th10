@@ -188,6 +188,30 @@ The game has to be running, and it has to be the legally obtained one
 Keys only reach a DirectInput game while its window owns the focus, and a Chinese IME on the game's thread swallows
 `Z`/`X` — `th10_focus` (used by `hold` and `watch`) handles both. Results go to stdout, failures to stderr.
 
+### Training and model evaluation
+
+Training and evaluation are manual operations against a running game, not automated tests. Start TH10 1.00a and enter
+a live stage by hand before running either command. Use a short smoke run before committing to a long training session:
+
+```powershell
+pixi run python -m training.train --iterations 2 --horizon 256 --updates 4 --batch-size 128 --checkpoint runs/smoke.pt
+pixi run python -m training.evaluate_model --checkpoint runs/smoke.pt --max-steps 2000
+```
+
+The ordinary longer-running training command writes `runs/dagger.pt` after every iteration:
+
+```powershell
+pixi run python -m training.train --iterations 100
+pixi run python -m training.evaluate_model --checkpoint runs/dagger.pt
+```
+
+DAgger pauses the game while it updates the model and writes the checkpoint, then verifies the resume boundary before
+collecting more frames. An exception during an update deliberately leaves the game paused; resume it manually with
+`Z` after dealing with the failure. Checkpoint loading supports evaluation, but training does not yet restore the
+aggregate DAgger buffer and RNG state, so rerunning `training.train` starts a new model and may overwrite a checkpoint
+with the same path. `evaluate_model --max-steps` is a single-episode diagnostic and cannot be combined with
+`--episodes` greater than one.
+
 ## Coding conventions
 
 General:
