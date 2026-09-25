@@ -301,12 +301,14 @@ class Th10Env:
         )
 
     def pause(self) -> Observation:
-        """Pause a running episode and return the observation at the frozen clock.
+        """Pause a running episode and return its boundary observation.
 
         The action held by the policy is released before ESC is pressed. Success
-        means more than sending that key: the stage clock must stop, the run must
-        still be alive, and the pause menu must be on its safe first entry. A
-        caller may therefore do arbitrary CPU work only after this method returns.
+        means more than sending that key: the pause menu must open on its safe
+        first entry. A run that ends in the short gap before the menu opens is
+        resumed back onto its ending and returned as a terminal observation;
+        otherwise the stage clock stays frozen so the caller may do arbitrary CPU
+        work before calling resume().
         """
         if self._phase is not _Phase.RUNNING:
             raise NotInStage("the episode is not running: call reset() before pause()")
@@ -316,15 +318,19 @@ class Th10Env:
             restart.tap(self.session, Action.ESCAPE, seconds=restart.TAP_SECONDS)
             stage_frames = self._wait_until_paused()
             snapshot = self._look()
-            if snapshot is None or snapshot.game_over:
-                raise NotInStage("the run ended while the pause menu was opening")
+            if snapshot is None:
+                raise NotInStage(
+                    "the run became unavailable while the pause menu was opening"
+                )
+            if snapshot.game_over:
+                stage_frames = self._leave_terminal_pause()
         except BaseException:
             self._phase = _Phase.INTERRUPTED
             self._release_input()
             raise
         self._advance_frame_count(stage_frames)
         self._snapshot = snapshot
-        self._phase = _Phase.PAUSED
+        self._phase = _Phase.ENDED if snapshot.game_over else _Phase.PAUSED
         return Observation(snapshot=snapshot)
 
     def resume(self) -> Observation:
@@ -586,6 +592,52 @@ class Th10Env:
             if time.monotonic() >= deadline:
                 raise NotInStage(
                     f"the stage did not resume within {self.frame_timeout_s:g} s"
+                )
+            time.sleep(self.poll_seconds)
+
+    def _leave_terminal_pause(self) -> int:
+        """Close a verified pause whose run ended while the menu was opening.
+
+        The ending cannot be restarted while the pause page covers it: the
+        ending driver deliberately refuses that page. `_wait_until_paused()` has
+        already established that its cursor is on `Return to Game`, and the
+        terminal snapshot establishes that no live policy will be resumed, so Z
+        is both necessary and safe here. The ending may install its own menu or
+        name entry immediately afterwards; reset() handles either from a fresh
+        screen read.
+        """
+        self.session.focus()
+        screen = self.session.screen()
+        if screen.kind is ScreenKind.PAUSE_CONFIRM:
+            raise NotInStage("the terminal pause opened its Retry confirmation")
+        if screen.kind is not ScreenKind.PAUSE_MENU:
+            if self.session.scene() is not Scene.STAGE:
+                raise NotInStage(
+                    "the game left the stage while closing a terminal pause"
+                )
+            return self.session.stage_frames()
+        if screen.cursor != PAUSE_MENU_RESUME:
+            raise NotInStage(
+                "the terminal pause menu moved away from Return to Game"
+            )
+        restart.tap(self.session, Action.SHOOT, seconds=restart.TAP_SECONDS)
+        deadline = time.monotonic() + self.frame_timeout_s
+        while True:
+            screen = self.session.screen()
+            if screen.kind is not ScreenKind.PAUSE_MENU:
+                if screen.kind is ScreenKind.PAUSE_CONFIRM:
+                    raise NotInStage(
+                        "the terminal pause opened its Retry confirmation"
+                    )
+                if self.session.scene() is not Scene.STAGE:
+                    raise NotInStage(
+                        "the game left the stage while closing a terminal pause"
+                    )
+                return self.session.stage_frames()
+            if time.monotonic() >= deadline:
+                raise NotInStage(
+                    "the terminal pause menu did not close within "
+                    f"{self.frame_timeout_s:g} s"
                 )
             time.sleep(self.poll_seconds)
 

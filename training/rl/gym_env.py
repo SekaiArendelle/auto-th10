@@ -142,14 +142,40 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         )
 
     def pause(self) -> tuple[np.ndarray, dict[str, object]]:
-        """Freeze a live rollout at a verified pause-menu boundary."""
+        """Freeze a rollout, or report a run that ended across the boundary."""
         self._require_live_episode("pause")
+        previous = self._observation
+        if previous is None:
+            raise RuntimeError("pause requires an observation")
         previous_frames = self.env.frames
         observation = self.env.pause()
         self._observation = observation
         delta_frames = self.env.frames - previous_frames
         self._advance_bomb_history(bomb=False, frames=delta_frames)
-        return self._encode(observation), self._info({}, delta_frames=delta_frames)
+        terminated = observation.snapshot.game_over
+        total = RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0.0)
+        if terminated:
+            total = memory_reward(
+                previous.snapshot,
+                observation.snapshot,
+                Action.NONE,
+                frames=max(1, delta_frames),
+                spec=self.reward_spec,
+            )
+            self._episode_done = True
+        info = self._info({}, delta_frames=delta_frames)
+        info.update(
+            {
+                "terminated": terminated,
+                "reward/survival": total.survival,
+                "reward/score": total.score,
+                "reward/life": total.life,
+                "reward/bomb": total.bomb,
+                "reward/game_over": total.game_over,
+                "reward/total": total.total,
+            }
+        )
+        return self._encode(observation), info
 
     def resume(self) -> tuple[np.ndarray, dict[str, object]]:
         """Leave a verified pause and return the first live feature vector."""

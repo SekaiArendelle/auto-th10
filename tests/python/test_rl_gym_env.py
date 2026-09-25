@@ -244,6 +244,27 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertGreater(resume_info["delta_frames"], 0)
         env.step(np.asarray([0, 0], dtype=np.int64))
 
+    def test_pause_reports_a_run_that_ended_while_the_menu_opened(self) -> None:
+        session = FakeSession(
+            snapshots=(
+                make_snapshot(lives=0),
+                make_snapshot(lives=-1, game_over=True),
+            )
+        )
+        env = self.make_env(session)
+        env.reset()
+
+        terminal, info = env.pause()
+
+        self.assertTrue(env.observation_space.contains(terminal))
+        self.assertTrue(info["terminated"])
+        self.assertEqual(info["reward/life"], -1.0)
+        self.assertEqual(info["reward/game_over"], -1.0)
+        self.assertEqual(info["reward/total"], -2.0)
+        self.assertFalse(session.paused)
+        with self.assertRaisesRegex(RuntimeError, "after the episode ends"):
+            env.step(np.asarray([0, 0], dtype=np.int64))
+
     def test_pause_requires_a_live_episode(self) -> None:
         env = self.make_env(FakeSession())
 

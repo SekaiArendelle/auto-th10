@@ -253,11 +253,15 @@ def _log_rollout_metrics(
 ) -> None:
     samples = rollout.samples
     writer.add_scalar(
-        "rollout/reward", sum(sample.reward for sample in samples), iteration
+        "rollout/reward",
+        sum(sample.reward for sample in samples) + rollout.boundary_reward,
+        iteration,
     )
     writer.add_scalar("rollout/steps", len(samples), iteration)
     writer.add_scalar(
-        "rollout/frames", sum(sample.frames for sample in samples), iteration
+        "rollout/frames",
+        sum(sample.frames for sample in samples) + rollout.boundary_frames,
+        iteration,
     )
     writer.add_scalar("rollout/terminated", int(rollout.terminated), iteration)
     if not samples:
@@ -301,11 +305,11 @@ def _accumulate_episode(
     rollout: DaggerRollout, *, reward: float, frames: int, bombs: int
 ) -> tuple[float, int, int]:
     samples = rollout.samples
-    if samples:
-        frames = samples[-1].episode_frames
     return (
-        reward + sum(sample.reward for sample in samples),
-        frames,
+        reward
+        + sum(sample.reward for sample in samples)
+        + rollout.boundary_reward,
+        rollout.episode_frames if samples else frames,
         bombs + sum(int(sample.executed_action.bomb) for sample in samples),
     )
 

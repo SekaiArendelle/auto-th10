@@ -105,7 +105,12 @@ class TrainEntryPointTests(unittest.TestCase):
             ),
         )
         rollout = SimpleNamespace(
-            samples=samples, terminated=False, truncated=False
+            samples=samples,
+            terminated=False,
+            truncated=False,
+            boundary_reward=0.0,
+            boundary_frames=0,
+            episode_frames=3,
         )
 
         train._log_update_metrics(
@@ -140,7 +145,9 @@ class TrainEntryPointTests(unittest.TestCase):
                     episode_frames=100,
                     executed_action=SimpleNamespace(bomb=False),
                 ),
-            )
+            ),
+            boundary_reward=0.0,
+            episode_frames=100,
         )
         second = SimpleNamespace(
             samples=(
@@ -149,7 +156,9 @@ class TrainEntryPointTests(unittest.TestCase):
                     episode_frames=205,
                     executed_action=SimpleNamespace(bomb=True),
                 ),
-            )
+            ),
+            boundary_reward=-2.0,
+            episode_frames=205,
         )
 
         reward, frames, bombs = train._accumulate_episode(
@@ -159,7 +168,7 @@ class TrainEntryPointTests(unittest.TestCase):
             second, reward=reward, frames=frames, bombs=bombs
         )
 
-        self.assertEqual(reward, 3.0)
+        self.assertEqual(reward, 1.0)
         self.assertEqual(frames, 205)
         self.assertEqual(bombs, 1)
 

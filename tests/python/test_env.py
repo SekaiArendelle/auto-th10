@@ -537,6 +537,39 @@ class PauseTests(NoWaiting, unittest.TestCase):
         with self.assertRaisesRegex(NotInStage, "call reset"):
             env.step(Action.NONE)
 
+    def test_a_run_ending_while_pause_opens_is_left_on_its_ending(self) -> None:
+        session = FakeSession(
+            snapshots=(
+                make_snapshot(lives=0),
+                make_snapshot(lives=-1, game_over=True),
+            )
+        )
+        env = make_environment(session)
+        env.reset()
+
+        observation = env.pause()
+
+        self.assertTrue(observation.snapshot.game_over)
+        self.assertFalse(session.paused)
+        self.assertEqual(
+            session.inputs[-5:],
+            [Action.NONE, Action.ESCAPE, Action.NONE, Action.SHOOT, Action.NONE],
+        )
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_an_unreadable_snapshot_while_pause_opens_is_still_refused(self) -> None:
+        session = FakeSession(snapshot_gaps=(2,))
+        env = make_environment(session)
+        env.reset()
+
+        with self.assertRaisesRegex(NotInStage, "became unavailable"):
+            env.pause()
+
+        self.assertTrue(session.paused)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
     def test_pause_interrupts_when_escape_does_not_freeze_the_stage(self) -> None:
         session = FakeSession(accept_pause=False)
         env = make_environment(session, frame_timeout_s=0.01)

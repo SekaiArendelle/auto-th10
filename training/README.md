@@ -104,6 +104,13 @@ input, the environment is interrupted rather than guessing where that input
 landed. Calling `reset()` while paused refuses without discarding this boundary,
 so the caller can still resume it safely.
 
+A death can land in the short interval between the rollout's final live snapshot
+and the pause menu opening. That boundary is terminal rather than a training
+failure: once the pause page and its safe `Return to Game` entry have been
+verified, the environment closes it onto the ending, accounts for the terminal
+reward and lets DAgger update and restart normally. An unreadable snapshot or an
+unexpected page is still refused; only an observed `game_over` takes this path.
+
 The game over menu is walked for the same reason. Its cursor opens on
 `Quit and Return to Select`, so a driver that only keeps pressing `<Z>` retreats to
 the title and then has to walk RANK, PLAYER SELECT and WEAPON SELECT to get back

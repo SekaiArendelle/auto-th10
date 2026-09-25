@@ -4,7 +4,7 @@ import math
 import random
 from collections import deque
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from numbers import Real
 from typing import Protocol
 
@@ -50,6 +50,9 @@ class DaggerRollout:
     next_features: np.ndarray
     terminated: bool
     truncated: bool
+    boundary_reward: float
+    boundary_frames: int
+    episode_frames: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +207,9 @@ def collect_dagger_rollout(
         next_features=current,
         terminated=terminated,
         truncated=truncated,
+        boundary_reward=0.0,
+        boundary_frames=0,
+        episode_frames=samples[-1].episode_frames,
     )
 
 
@@ -249,8 +255,19 @@ def run_dagger_iteration(
     buffer.extend(rollout.samples)
     live = not rollout.terminated and not rollout.truncated
     if live:
-        _, info = env.pause()
-        teacher.advance(frames=int(info["delta_frames"]))
+        boundary_features, info = env.pause()
+        if bool(info["terminated"]):
+            rollout = replace(
+                rollout,
+                next_features=boundary_features,
+                terminated=True,
+                boundary_reward=float(info["reward/total"]),
+                boundary_frames=int(info["delta_frames"]),
+                episode_frames=int(info["frames"]),
+            )
+            live = False
+        else:
+            teacher.advance(frames=int(info["delta_frames"]))
     updates: list[ImitationMetrics] = []
     try:
         device = next(model.parameters()).device
