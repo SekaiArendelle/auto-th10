@@ -181,6 +181,73 @@ class ResetTests(NoWaiting, unittest.TestCase):
         with self.assertRaises(NotInStage):
             make_environment(FakeSession(frame_step=0)).reset()
 
+    def test_reset_leaves_a_pause_menu_the_game_was_left_on(self) -> None:
+        # The pause is not ours: an update that failed with the stage paused, or
+        # the operator's own ESCAPE. No run starts behind the menu, and the cursor
+        # opens on Return to Game, so reset() takes the one key that leaves it.
+        session = FakeSession(screen_kind=ScreenKind.PAUSE_MENU, screen_cursor=0)
+        session.paused = True
+        env = make_environment(session)
+
+        env.reset()
+        env.step(Action.NONE)
+
+        self.assertIs(session.screen_kind, ScreenKind.STAGE)
+        self.assertIn(Action.SHOOT, session.inputs)
+        self.assertEqual(env.steps, 1)
+
+    def test_reset_refuses_a_pause_menu_away_from_return_to_game(self) -> None:
+        # Another entry on that menu is not one this layer may choose: `Retry This
+        # Game` is one press away, and its confirmation would end the run.
+        session = FakeSession(screen_kind=ScreenKind.PAUSE_MENU, screen_cursor=1)
+        session.paused = True
+
+        with self.assertRaisesRegex(NotInStage, "Return to Game"):
+            make_environment(session).reset()
+
+        self.assertEqual(session.inputs, [])
+
+    def test_reset_refuses_a_pause_confirmation_without_pressing_through_it(self) -> None:
+        # The Retry confirmation is a page of its own whose cursor opens on `No`,
+        # and its 0 sits in the same field as Return to Game does on the menu
+        # above: a driver that went by the number alone would answer `Yes`.
+        session = FakeSession(screen_kind=ScreenKind.PAUSE_CONFIRM, screen_cursor=0)
+        session.paused = True
+
+        with self.assertRaises(NotInStage):
+            make_environment(session).reset()
+
+        self.assertEqual(session.inputs, [])
+
+    def test_a_running_stage_is_not_asked_about_its_screen(self) -> None:
+        # The screen is what decides between leaving a pause and refusing one, but
+        # it is read only once the clock has stopped: a screen read failure must
+        # not be able to break a reset that has nothing to repair.
+        session = FakeSession(screen_error=OSError("the game's screen could not be read"))
+        env = make_environment(session)
+
+        env.reset()
+        env.step(Action.NONE)
+
+        self.assertEqual(env.steps, 1)
+
+    def test_reset_refuses_a_pause_menu_behind_an_ending_without_confirming_it(self) -> None:
+        # The ending's branch runs first and reaches the restart sequence, which
+        # refuses both pause pages before its first press: all that leaves is the
+        # release `leave_game_over()` opens with, so no confirmation can be
+        # answered through an ending's sequence.
+        session = FakeSession(
+            snapshots=(make_snapshot(lives=-1, game_over=True),),
+            screen_kind=ScreenKind.PAUSE_MENU,
+            screen_cursor=0,
+        )
+        session.paused = True
+
+        with self.assertRaises(NotInStage):
+            make_environment(session).reset()
+
+        self.assertEqual(session.inputs, [Action.NONE])
+
     def test_reset_refuses_a_stage_with_no_run_behind_it(self) -> None:
         # Between runs the family can still read as a stage while the stage object
         # is gone, which is what a snapshot that raises means.

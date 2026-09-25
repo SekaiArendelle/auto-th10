@@ -3,9 +3,11 @@
 The environment drives only what it has to. It starts from a stage the player is
 already in, and it refuses to touch the game from anywhere else - entering a
 stage and picking a shot type stay with the player, because those are choices a
-script has no business making. The one menu it drives is the pause menu it opened
-itself, after checking that its safe default entry has not moved. That boundary is
-what keeps a wrong key press from landing on another menu.
+script has no business making. The one menu it drives is the pause menu: one this
+environment opened itself, after checking that its safe default entry has not
+moved, and one reset() finds already up - no run can start behind it, so leaving
+it from that same entry is part of starting an episode. That boundary is what
+keeps a wrong key press from landing on another menu.
 
 It asks the game's own data rather than a summary of it: the screen family (one
 read, no waiting), the snapshot (the run's numbers) and the screen the game is
@@ -29,11 +31,12 @@ PAUSE_SAMPLE_SECONDS = 0.12
 frozen: long enough for a running stage to have advanced several frames, short
 enough that both reads still describe the same moment.
 
-A pause is not read this way any more. The pause menu is a page of its own, so
+A pause is not read from these samples: the pause menu is a page of its own, so
 `screen()` answers what two samples could only say as "the clock has stopped" -
-which is what a stage that is still loading looks like as well. What the two
-samples are left for is `_require_not_frozen`, which asks the other question:
-whether the clock is moving at all."""
+which is what a stage that is still loading looks like as well. The samples are
+left for the clock question itself, which reset() asks as the gate before reading
+that page and again after a tap to see the tap land, and which
+`_require_not_frozen` words as a refusal."""
 
 PAUSE_MENU_RESUME = 0
 """`Return to Game`, the pause menu's first entry - the only cursor position this
@@ -148,8 +151,9 @@ class _Phase(Enum):
 class NotInStage(RuntimeError):
     """The game is not in a running stage, so injecting keys would be wrong.
 
-    Raised when the screen is a menu, the pause menu or a game over, and when the
-    stage frame counter stops moving under step(). Both are the same problem:
+    Raised when the screen is a menu, a game over, or a pause menu on an entry
+    other than `Return to Game`, and when the stage frame counter has stopped by
+    the time reset() or require_in_stage() samples it. Both are the same problem:
     the keys would land on a menu instead of the game.
     """
 
@@ -203,6 +207,12 @@ class Th10Env:
         walks its menu back into a run. An ending this environment produced is
         different: OnDeath.STOP leaves it there, and reset() then refuses to start
         another run on top of it.
+
+        A pause menu the game was left on is the same kind of leftover: no run can
+        start behind it, so once the clock reads as stopped, `_leave_pause_if_up()`
+        leaves it from `Return to Game`, the only entry a key may be sent from.
+        This environment's own pause is not: that boundary is refused above, still
+        open for resume() to close.
         """
         if self._phase is _Phase.CLOSED:
             raise RuntimeError("the environment is closed")
@@ -231,7 +241,13 @@ class Th10Env:
             snapshot = self._look()
         if snapshot is None or snapshot.game_over:
             raise self._refuse()
-        self._require_not_frozen()
+        if self._stuck_frame_count() is not None:
+            # The clock stopped, and of the three causes in the message below only
+            # a pause menu the game was left on can be repaired here. The screen is
+            # read only on this path - a run that is moving costs nothing - and the
+            # clock is sampled again afterwards, which is what shows a tap landed.
+            self._leave_pause_if_up()
+            self._require_not_frozen()
         self.session.focus()
         # The snapshot read on the way in is the one to keep. focus() hands the
         # window the keyboard and changes nothing about the run, so reading again
@@ -403,21 +419,61 @@ class Th10Env:
         except GameplayNotActive:
             return None
 
-    def _require_not_frozen(self) -> None:
-        """Raise NotInStage when the stage clock has stopped.
+    def _stuck_frame_count(self) -> int | None:
+        """The value the clock stopped at when two samples agree it has, else None.
 
         Playing and paused share a screen family and the game raises no flag that
         a single read could see, so this is the one question here that needs two
-        samples. It is asked once per episode rather than once per step, and the
-        step loop does not need it at all - it waits on the same counter.
+        samples. It is asked by reset() rather than once per step - twice there
+        when the clock has stopped, because the second pair is what shows a tap
+        landed - and the step loop does not need it at all: it waits on the same
+        counter.
         """
         earlier = self.session.stage_frames()
         time.sleep(PAUSE_SAMPLE_SECONDS)
         if self.session.stage_frames() == earlier:
+            return earlier
+        return None
+
+    def _require_not_frozen(self) -> None:
+        """Raise NotInStage when the stage clock has stopped, worded from where."""
+        stuck = self._stuck_frame_count()
+        if stuck is not None:
             raise NotInStage(
-                f"the stage frame counter is not moving (stuck at {earlier}): "
+                f"the stage frame counter is not moving (stuck at {stuck}): "
                 "the game is paused, loading or gone"
             )
+
+    def _leave_pause_if_up(self) -> None:
+        """Leaves a pause menu the game was left on, so an episode can start.
+
+        Reached only once the clock has stopped, and a pause is the one of the
+        three reasons in `_require_not_frozen`'s message that can be repaired
+        here. The pause is not this environment's own - reset() refuses that while
+        its boundary is open - it is one left behind by an update that failed with
+        the stage paused, or by the operator's own ESCAPE. Nothing can be played
+        behind the menu, so the key that leaves it is sent here rather than asked
+        for, under the check `resume()` makes, in the same order it makes them:
+        the window is focused first, so the cursor read that follows is the last
+        thing before the press rather than something the focus call aged. The page
+        has to be the pause menu and its cursor on `Return to Game`, because the
+        Retry confirmation keeps a cursor in the same field where `0` answers `Yes`
+        and ends the run (`docs/game-ui.md`). Any other page - that confirmation
+        included - is refused rather than pressed through.
+        """
+        self.session.focus()
+        screen = self.session.screen()
+        if screen.kind is ScreenKind.PAUSE_CONFIRM:
+            raise NotInStage(
+                "the pause menu is showing its Retry confirmation: resume it manually"
+            )
+        if screen.kind is not ScreenKind.PAUSE_MENU:
+            return
+        if screen.cursor != PAUSE_MENU_RESUME:
+            raise NotInStage(
+                "the pause menu is not on Return to Game: resume it manually"
+            )
+        restart.tap(self.session, Action.SHOOT, seconds=restart.TAP_SECONDS)
 
     def _refuse(self) -> NotInStage:
         """The refusal to run, worded from the one read that is free.

@@ -318,9 +318,10 @@ wheels, so lowering either pin would advertise an install that cannot resolve.
 - Keep the agent on a short leash, because every mistake here ends the same way — an agent typing into a menu. A policy
   decides from an `Observation` and nothing else; the step loop never calls the coarse `state()` (it answers playing
   against paused from the pause menu's own page, and says less than `snapshot()` and `screen()` do between them); and
-  `Th10Env` raises `NotInStage` rather than inject a key for a menu, the pause menu, an unknown screen, or an ending it
-  is not allowed to leave. The one ending it does clear is one that was already on screen before the first episode,
-  since that is left over from an earlier attempt.
+  `Th10Env` raises `NotInStage` rather than inject a key for a menu, an unknown screen, or an ending it
+  is not allowed to leave. The two things it does clear are both in the way of a run: an ending on screen — before the
+  first episode, or left there by the previous one under `OnDeath.RESTART` — and a pause menu the game was left on,
+  which `reset()` leaves from `Return to Game` only — no run can start behind it.
 - Text-producing enums that mirror C constants derive from `StrEnum`, so a member compares equal to the raw name the C
   side returns *and* prints as that name (`Scene` and `ScreenKind` in `session.py`).
 - Export public names explicitly through `__all__` in `python/auto_th10/__init__.py`.

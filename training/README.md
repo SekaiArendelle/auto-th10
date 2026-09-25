@@ -82,7 +82,14 @@ Entering a stage is a deliberate hole rather than an unfinished one: a script th
 walks menus has to know how many presses each screen takes and what they select,
 and a wrong guess lands in a shot type or a difficulty nobody chose. The
 environment therefore refuses to run anywhere but in a playing stage, raising
-`NotInStage` for the menu, a pause menu it did not open and an unknown screen.
+`NotInStage` for the menu, an unknown screen, and a pause menu whose cursor has
+moved off `Return to Game`.
+
+The one pause it leaves of its own accord is a game that was already sitting in
+one: an update that failed while the stage was paused, or the operator's own
+ESCAPE. No run can start behind that menu, so `reset()` taps `Return to Game` -
+the entry its cursor opens on - after the checks `resume()` makes, and refuses
+anything else on that screen rather than pressing through it.
 
 `Th10Env.pause()` is the controlled exception used at an in-memory trainer's
 rollout boundary. It releases the policy's held action, focuses the window, taps
@@ -193,8 +200,9 @@ pixi run python -m training.evaluate_model --checkpoint runs/dagger.pt
 
 `--iterations` defaults to `inf`: the run then ends only when the game refuses
 to play (`NotInStage`) or at Ctrl+C, which names the iteration it stopped in.
-Held input is released either way, but an interrupt during an update leaves the
-game paused - resume it with `Z`.
+Held input is released either way, and an interrupt during an update leaves the
+game paused - the next start finds that menu and leaves it from `Return to Game`
+itself.
 
 - `training/policy.py` - `FixedPolicy`, `EvasivePolicy` and `RandomPolicy`,
   behind one `Policy` boundary.
