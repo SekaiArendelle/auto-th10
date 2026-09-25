@@ -1,6 +1,8 @@
 """Run online DAgger updates against a game already in a stage."""
 
 import argparse
+from collections.abc import Iterable
+import itertools
 import math
 import pathlib
 import random
@@ -34,7 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
             "enter a stage before running this command."
         ),
     )
-    parser.add_argument("--iterations", type=_positive_int, default=100)
+    parser.add_argument(
+        "--iterations",
+        type=_iteration_limit,
+        default=None,
+        help="DAgger iterations to run; inf (the default) runs until interrupted",
+    )
     parser.add_argument("--horizon", type=_positive_int, default=1024)
     parser.add_argument("--updates", type=_nonnegative_int, default=16)
     parser.add_argument("--batch-size", type=_positive_int, default=256)
@@ -85,13 +92,17 @@ def main(argv: list[str] | None = None) -> int:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     buffer = DaggerBuffer(args.buffer_capacity)
     teacher = EvasiveTeacher()
-    env = MemoryGymEnv(feature_spec=feature_spec)
     beta = args.beta
+    iteration = 0
+    env: MemoryGymEnv | None = None
 
     try:
+        # Built inside the handler's reach: attaching to the game can itself be
+        # interrupted, or refused with NotInStage, before the first iteration.
+        env = MemoryGymEnv(feature_spec=feature_spec)
         features, _ = env.reset(seed=args.seed)
         teacher.reset()
-        for iteration in range(1, args.iterations + 1):
+        for iteration in _iteration_range(args.iterations):
             def finish_updates(updates: tuple[ImitationMetrics, ...]) -> None:
                 save_checkpoint(
                     args.checkpoint,
@@ -130,8 +141,12 @@ def main(argv: list[str] | None = None) -> int:
     except NotInStage as refused:
         print(f"training stopped: {refused}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print(f"training interrupted at iteration {iteration}", file=sys.stderr)
+        return 130
     finally:
-        env.close()
+        if env is not None:
+            env.close()
     return 0
 
 
@@ -149,10 +164,24 @@ def _report_iteration(
     )
 
 
+def _iteration_range(limit: int | None) -> Iterable[int]:
+    """Number the iterations from 1; `inf` (parsed to `None`) has no last one."""
+    return itertools.count(1) if limit is None else range(1, limit + 1)
+
+
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def _iteration_limit(value: str) -> int | None:
+    if value.lower() == "inf":
+        return None
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be positive or 'inf'")
     return parsed
 
 
