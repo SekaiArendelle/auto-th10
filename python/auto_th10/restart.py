@@ -173,12 +173,24 @@ def _walk_to_continue(session: Session, *, timeout_s: float) -> None:
     been read. The presses are spaced by `_press`, so a transition has ended before
     the next read rather than after it.
 
+    A paused run is the one thing that must not be read that way: its two screens
+    are pages of their own, and a `SHOOT` on either does something unrelated to an
+    ending - it resumes the run, or answers the pause menu's confirmation. Both are
+    refused instead of pressed through, because the pause boundary belongs to the
+    environment that opened it.
+
     The menu wraps at both ends, so `down` reaches `継続する` from every entry.
     """
     deadline = time.monotonic() + timeout_s
     while True:
         state = session.screen()
         if state.kind is ScreenKind.NAME_ENTRY:
+            raise _not_an_ending()
+        if state.kind in (ScreenKind.PAUSE_MENU, ScreenKind.PAUSE_CONFIRM):
+            # A paused run is not an ending, and these two screens are the ones a
+            # key must not land on: `SHOOT` on the menu resumes the run, and on
+            # the confirmation it answers whichever entry the cursor is on. The
+            # boundary belongs to `env`, which opened the pause.
             raise _not_an_ending()
         if state.kind is ScreenKind.MENU:
             if state.cursor == MENU_CONTINUE:

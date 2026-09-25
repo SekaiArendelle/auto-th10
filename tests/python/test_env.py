@@ -500,12 +500,50 @@ class PauseTests(NoWaiting, unittest.TestCase):
         with self.assertRaisesRegex(NotInStage, "call reset"):
             env.step(Action.NONE)
 
+    def test_pause_refuses_the_retry_confirmation(self) -> None:
+        class ConfirmingPauseSession(FakeSession):
+            """A pause whose menu is wearing `Retry This Game`'s confirmation."""
+
+            def _apply(self, action: object) -> None:
+                super()._apply(action)
+                if action == Action.ESCAPE and self.paused:
+                    self.screen_kind = ScreenKind.PAUSE_CONFIRM
+                    self.screen_cursor = 1  # `No`, where that confirmation opens
+
+        session = ConfirmingPauseSession()
+        env = make_environment(session)
+        env.reset()
+
+        with self.assertRaisesRegex(NotInStage, "Retry confirmation"):
+            env.pause()
+
+        self.assertEqual(session.inputs[-1], Action.NONE)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
     def test_resume_checks_the_cursor_before_sending_z(self) -> None:
         session = FakeSession()
         env = make_environment(session)
         env.reset()
         env.pause()
         session.screen_cursor = 1
+        inputs_before_resume = list(session.inputs)
+
+        with self.assertRaisesRegex(NotInStage, "Return to Game"):
+            env.resume()
+
+        self.assertEqual(session.inputs, inputs_before_resume)
+        self.assertTrue(session.paused)
+
+    def test_resume_refuses_the_retry_confirmation_at_its_own_zero(self) -> None:
+        # The confirmation keeps its cursor in the pause menu's field, so a check
+        # on that number alone would read its `Yes` as `Return to Game`.
+        session = FakeSession()
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+        session.screen_kind = ScreenKind.PAUSE_CONFIRM
+        session.screen_cursor = 0
         inputs_before_resume = list(session.inputs)
 
         with self.assertRaisesRegex(NotInStage, "Return to Game"):

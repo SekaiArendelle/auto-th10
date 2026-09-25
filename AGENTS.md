@@ -316,10 +316,11 @@ wheels, so lowering either pin would advertise an install that cannot resolve.
   `_native`. Anything that drives the game (the environment, the key sequences in `restart.py`) stays in
   `python/auto_th10/`; anything that decides or records (a policy, a loop, an entry point) belongs in `training/`.
 - Keep the agent on a short leash, because every mistake here ends the same way — an agent typing into a menu. A policy
-  decides from an `Observation` and nothing else; the step loop never calls the blocking `state()` (about 120 ms, it
-  samples the frame counter twice); and `Th10Env` raises `NotInStage` rather than inject a key for a menu, the pause
-  menu, an unknown screen, or an ending it is not allowed to leave. The one ending it does clear is one that was
-  already on screen before the first episode, since that is left over from an earlier attempt.
+  decides from an `Observation` and nothing else; the step loop never calls the coarse `state()` (it answers playing
+  against paused from the pause menu's own page, and says less than `snapshot()` and `screen()` do between them); and
+  `Th10Env` raises `NotInStage` rather than inject a key for a menu, the pause menu, an unknown screen, or an ending it
+  is not allowed to leave. The one ending it does clear is one that was already on screen before the first episode,
+  since that is left over from an earlier attempt.
 - Text-producing enums that mirror C constants derive from `StrEnum`, so a member compares equal to the raw name the C
   side returns *and* prints as that name (`Scene` and `ScreenKind` in `session.py`).
 - Export public names explicitly through `__all__` in `python/auto_th10/__init__.py`.

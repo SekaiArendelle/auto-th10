@@ -51,8 +51,20 @@ class ScreenKind(StrEnum):
     This is finer than `Scene` and answers a different question. `Scene` says
     which family the game is in - a menu or a stage - and is deliberately blind
     to everything below that; `ScreenKind` names the page itself, and knows only
-    the three the binding has measured (a stage, a menu, the Score Ranking name
-    entry). Every other page answers UNKNOWN, and the game has several.
+    the ones the binding has measured (a stage, a menu, the two menus a paused
+    run drives, the Score Ranking name entry). Every other page answers UNKNOWN,
+    and the game has several.
+
+    The pause screens are kinds of their own - `PAUSE_MENU` for the menu ESCAPE
+    opens, `PAUSE_CONFIRM` for the confirmation `Retry This Game` opens on it -
+    because entry 0 means something different on each: `Return to Game` on one
+    and `Yes` on the other. `env` resumes a run only from `PAUSE_MENU` at 0,
+    which is what keeps a wrong key off the confirmation.
+
+    STAGE is narrower than it reads: it is the stage whose run is over (the id
+    reads 6 then, and 0 while a run is still playing, which is UNKNOWN here). A
+    playing stage therefore answers UNKNOWN, and "is there a run, and is it over"
+    is a question for `snapshot()` rather than for this enum.
 
     It exists because it is the only read that tells an ending's menu from the
     name entry behind it: both run inside a stage family with the run over, so
@@ -66,6 +78,8 @@ class ScreenKind(StrEnum):
     UNKNOWN = "TH10_SCREEN_KIND_UNKNOWN"
     STAGE = "TH10_SCREEN_KIND_STAGE"
     MENU = "TH10_SCREEN_KIND_MENU"
+    PAUSE_MENU = "TH10_SCREEN_KIND_PAUSE_MENU"
+    PAUSE_CONFIRM = "TH10_SCREEN_KIND_PAUSE_CONFIRM"
     NAME_ENTRY = "TH10_SCREEN_KIND_NAME_ENTRY"
 
 
@@ -74,9 +88,10 @@ class Session:
 
     Everything here is a read or an input, and the coarse "which screen is it"
     word is deliberately not among them: `th10_read_state()` is not bound at all.
-    It blocks for about 120 ms to separate playing from paused, and what it
-    returns says less than the reads that replace it - `scene()` for the family,
-    `snapshot()` for the run, `stage_frames()` twice for a stage that has frozen.
+    It reads playing against paused off the pause menu's own page, so it no
+    longer waits, and it still says less than the reads that replace it -
+    `scene()` for the family, `snapshot()` for the run, `screen()` for the page
+    and its cursor, `stage_frames()` twice for a stage whose clock has stopped.
     It is kept for people and for `th10ctl`; the reasoning is in `_native.c` and
     in docs/game-ui.md.
     """

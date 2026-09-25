@@ -8,10 +8,10 @@ itself, after checking that its safe default entry has not moved. That boundary 
 what keeps a wrong key press from landing on another menu.
 
 It asks the game's own data rather than a summary of it: the screen family (one
-read, no waiting), the snapshot (the run's numbers) and the stage frame counter,
-sampled twice, for the one question no single read can answer. The coarse state
-word that used to stand in for all three is not even bound in Python - see
-`session.Session` - because it blocks for about 120 ms and says less.
+read, no waiting), the snapshot (the run's numbers) and the screen the game is
+driving (which page is up, and where its cursor is). The coarse state word that
+used to stand in for all of them is not even bound in Python - see
+`session.Session` - because it says less than those reads answer between them.
 
 See training/README.md for how the layers above this one fit together.
 """
@@ -26,9 +26,22 @@ from .types import Snapshot
 
 PAUSE_SAMPLE_SECONDS = 0.12
 """How far apart the two frame-counter samples are when asking whether a stage is
-frozen: the same 120 ms the C side's own state read uses, and for the same reason
-- long enough for a running stage to have advanced several frames, short enough
-that both reads still describe the same moment."""
+frozen: long enough for a running stage to have advanced several frames, short
+enough that both reads still describe the same moment.
+
+A pause is not read this way any more. The pause menu is a page of its own, so
+`screen()` answers what two samples could only say as "the clock has stopped" -
+which is what a stage that is still loading looks like as well. What the two
+samples are left for is `_require_not_frozen`, which asks the other question:
+whether the clock is moving at all."""
+
+PAUSE_MENU_RESUME = 0
+"""`Return to Game`, the pause menu's first entry - the only cursor position this
+layer may press Z from.
+
+The confirmation behind `Retry This Game` keeps its cursor in the same field and
+opens on 1, and its 0 is `Yes`, which leaves the run for the title. That is why
+the screen's own kind is part of the check and not only this number."""
 
 
 class OnDeath(Enum):
@@ -383,7 +396,7 @@ class Th10Env:
         exactly when the stage object is gone, which covers the title screen, the
         setup screens and the gaps between runs in one test. It also costs
         nothing extra - step() reads a snapshot every frame anyway - where the
-        state word charges 120 ms to say something coarser about the same game.
+        state word says something coarser about the same game.
         """
         try:
             return self.session.snapshot()
@@ -412,9 +425,9 @@ class Th10Env:
         There are two ways to get here - the game is in the menus, or the family
         reads as a stage while no run is behind it - and the family is enough to
         tell them apart. It used to name the fine-grained screen instead, which
-        cost the state word's 120 ms; the episode lifecycle does not bind that word
-        at all (see `session.Session`), and an error message is not a reason to
-        bring it back.
+        cost a whole other read; the episode lifecycle does not bind the state
+        word at all (see `session.Session`), and an error message is not a reason
+        to bring it back.
         """
         where = "in the menus" if self.session.scene() is Scene.MENU else "in a stage with no run"
         return NotInStage(
@@ -470,28 +483,36 @@ class Th10Env:
             time.sleep(self.poll_seconds)
 
     def _wait_until_paused(self) -> int:
-        """Return the clock value after a full sample interval without progress."""
+        """Wait for the pause menu to come up, then return the clock it stopped.
+
+        The menu is a page of its own, so this polls the screen the game says it
+        is driving rather than sampling the frame counter twice: the page coming
+        up *is* the pause, and the clock is read once it is there - frozen because
+        the menu is up, not because two samples agreed.
+
+        The page has to be the pause menu at its safe entry. The confirmation
+        behind `Retry This Game` is another page whose entry 0 is `Yes`, so a
+        pause that opened onto it is refused rather than waited through: it is
+        not a boundary this layer may press Z from.
+        """
         deadline = time.monotonic() + self.frame_timeout_s
-        earlier = self.session.stage_frames()
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            if time.monotonic() >= deadline:
                 raise NotInStage(
                     f"the stage did not pause within {self.frame_timeout_s:g} s"
                 )
-            time.sleep(min(PAUSE_SAMPLE_SECONDS, remaining))
-            current = self.session.stage_frames()
-            if current == earlier:
-                screen = self.session.screen()
-                if screen.kind is ScreenKind.MENU and screen.cursor == 0:
-                    return current
-                if screen.kind is ScreenKind.MENU:
+            screen = self.session.screen()
+            if screen.kind is ScreenKind.PAUSE_MENU:
+                if screen.cursor != PAUSE_MENU_RESUME:
                     raise NotInStage(
                         "the pause menu opened away from Return to Game"
                     )
+                return self.session.stage_frames()
+            if screen.kind is ScreenKind.PAUSE_CONFIRM:
+                raise NotInStage("the pause menu opened its Retry confirmation")
             if self.session.scene() is not Scene.STAGE:
                 raise NotInStage("the game left the stage while pausing")
-            earlier = current
+            time.sleep(self.poll_seconds)
 
     def _wait_until_resumed(self) -> tuple[int, Snapshot]:
         """Return the first live snapshot after the paused clock advances."""
@@ -513,7 +534,13 @@ class Th10Env:
             time.sleep(self.poll_seconds)
 
     def _require_own_pause(self) -> None:
-        """Refuse to press Z unless the game is still at our frozen boundary."""
+        """Refuse to press Z unless the game is still at our frozen boundary.
+
+        The pause menu is the only page Z may be sent from, and only with the
+        cursor on `Return to Game`. The confirmation behind `Retry This Game`
+        keeps its cursor in the same field and opens on `No`, and a Z on its 0
+        would answer `Yes` - so its page is a refusal like any other.
+        """
         if self.session.scene() is not Scene.STAGE:
             raise NotInStage("the game left the paused stage: resume it manually")
         snapshot = self._look()
@@ -525,7 +552,10 @@ class Th10Env:
                 "the stage clock moved after pause(): resume the game manually"
             )
         screen = self.session.screen()
-        if screen.kind is not ScreenKind.MENU or screen.cursor != 0:
+        if (
+            screen.kind is not ScreenKind.PAUSE_MENU
+            or screen.cursor != PAUSE_MENU_RESUME
+        ):
             raise NotInStage(
                 "the pause menu is not on Return to Game: resume it manually"
             )

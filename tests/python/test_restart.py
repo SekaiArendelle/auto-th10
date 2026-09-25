@@ -84,6 +84,26 @@ class LeaveGameOverTests(NoWaiting, unittest.TestCase):
             [Action.NONE, Action.SHOOT, Action.NONE],
         )
 
+    def test_refuses_a_pause_menu_without_pressing_anything(self) -> None:
+        # A paused run is not an ending: `SHOOT` on this screen resumes the run
+        # rather than opening a menu, so the sequence has to refuse it.
+        session = FakeSession(screen_kind=ScreenKind.PAUSE_MENU, screen_cursor=0)
+
+        with self.assertRaisesRegex(NotAnEnding, "not on an ending"):
+            leave_game_over(session, timeout_s=1.0)
+
+        self.assertEqual(session.inputs, [Action.NONE])
+
+    def test_refuses_a_pause_confirmation_without_pressing_anything(self) -> None:
+        # The confirmation keeps its cursor in the pause menu's field, so a
+        # confirm here answers whatever entry a caller found it on.
+        session = FakeSession(screen_kind=ScreenKind.PAUSE_CONFIRM, screen_cursor=0)
+
+        with self.assertRaisesRegex(NotAnEnding, "not on an ending"):
+            leave_game_over(session, timeout_s=1.0)
+
+        self.assertEqual(session.inputs, [Action.NONE])
+
     def test_waits_out_the_loading_screen_without_pressing_again(self) -> None:
         # Continue starts the next run immediately, but its stage still has to
         # load, and reading a snapshot there raises. That is waited out rather than

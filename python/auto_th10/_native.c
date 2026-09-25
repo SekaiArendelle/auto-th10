@@ -524,14 +524,13 @@ static PyObject *session_snapshot(py_th10_session *self, PyObject *ignored) {
 
 /* There is deliberately no binding for th10_read_state() here.
  *
- * It answers three questions at once and blocks for about 120 ms when the answer
- * is "playing or paused", because telling those apart takes two samples of the
- * frame counter. What it returns is also coarser than the reads that sit beside
- * it: MENU is six screens under one value, a stage is playing, paused and over
- * alike, and the title screen's own demo reports PLAYING. A Python agent gets
- * more, sooner, from scene(), snapshot() and stage_frames(), which is why the
- * episode lifecycle decides from those and this entry point stays unbound. The
- * state word is kept for people and for th10ctl; see docs/game-ui.md. */
+ * It answers every question at once, and what it returns is coarser than the
+ * reads that sit beside it: MENU is six screens under one value, a stage is
+ * playing, paused and over alike, and the title screen's own demo reports
+ * PLAYING. A Python agent gets more, sooner, from scene(), snapshot() and
+ * screen(), which is why the episode lifecycle decides from those and this entry
+ * point stays unbound. The state word is kept for people and for th10ctl; see
+ * docs/game-ui.md. */
 
 static PyObject *session_scene(py_th10_session *self, PyObject *ignored) {
     static const char *names[] = {
@@ -596,6 +595,8 @@ static PyObject *session_screen(py_th10_session *self, PyObject *ignored) {
         "TH10_SCREEN_KIND_UNKNOWN",
         "TH10_SCREEN_KIND_STAGE",
         "TH10_SCREEN_KIND_MENU",
+        "TH10_SCREEN_KIND_PAUSE_MENU",
+        "TH10_SCREEN_KIND_PAUSE_CONFIRM",
         "TH10_SCREEN_KIND_NAME_ENTRY",
     };
     th10_screen_result result;

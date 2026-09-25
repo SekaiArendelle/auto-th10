@@ -74,28 +74,36 @@ labels. Neither the look of the menu nor the entry count says which one is up;
 
 ## Asking the game where it is
 
-Three reads, and the rule is to use the cheapest one that answers the question:
+Five reads, and the rule is to use the cheapest one that answers the question:
 
 | Question | Read | Cost |
 | --- | --- | --- |
 | A stage at all, or the menus? | `th10_read_scene()` / `Session.scene()` | one word, nothing to wait for |
 | Which screen is it, and where is its cursor? | `th10_read_screen()` / `Session.screen()` | a pointer chase and a word |
 | Is there a run, and is it over? | `th10_read_snapshot()` | one pass over the game's live objects |
-| Still running, or frozen? | `th10_read_stage_frames()` twice | two reads, and the gap between them is yours to choose |
+| Still running, or paused? | `th10_read_screen()` / `Session.screen()` | the same one read: the pause menu is a page of its own |
+| Is the clock moving at all? | `th10_read_stage_frames()` twice | two reads, and the gap between them is yours to choose |
 
-`th10_read_state()` (and `th10ctl state`) answers all three at once, and it is the
-wrong tool for a driver: it blocks for about 120 ms whenever the answer is "playing
-or paused", and what it returns is coarser than the snapshot sitting beside it. It
-is kept for people and for one-shot diagnostics, and the Python binding does not
-offer it at all - `Session` deliberately has no `state()`, so an agent cannot
-reach for it by accident.
+`th10_read_state()` (and `th10ctl state`) answers all of them at once, and it is the
+wrong tool for a driver: what it returns is coarser than the reads sitting beside
+it, and the Python binding does not offer it at all - `Session` deliberately has no
+`state()`, so an agent cannot reach for it by accident. It is kept for people and
+for one-shot diagnostics, and it no longer waits now that the pause menu - rather
+than a stopped clock - is what says "paused".
 
 `th10_read_screen()` is the one read that says which screen the game is driving and
 where its highlight sits. It is a different kind of read from the rest: the screen
 id and the cursor live in an object the game points at from a fixed address, and
 that pointer moves as the game changes screen, so it is read on every call rather
-than kept. Three ids have been measured - a stage, a menu, the ranking's name entry -
-and anything else is reported as unknown rather than guessed at.
+than kept. The ids measured so far are a stage whose run is over (6), a menu (8),
+the ranking's name entry (12), the pause menu a running stage opens on `ESCAPE`
+(2), the confirmation its `Retry This Game` opens (4), and the screens between runs
+(21) - and anything else is reported as unknown rather than guessed at.
+
+A stage that is **playing** is one of those unknowns: its id reads 0, so
+`TH10_SCREEN_KIND_UNKNOWN` is what an ordinary running stage looks like, and
+reading it as "no stage" is reading the opposite of what is there. "Is there a run,
+and is it over" is `th10_read_snapshot()`'s question, not this read's.
 
 That cursor is also the one thing this library writes. `th10_write_screen_cursor()`
 moves it, which is the same change a direction key makes: the field is what the
@@ -111,8 +119,10 @@ What each value can and cannot say, all measured:
   is not proof that anybody is playing. The demo draws a `Demo Play` caption over
   the field, and a snapshot taken during one carries the demo's own saved state:
   `lives` at 9, full power, the ship moving by itself.
-- `TH10_STATE_PAUSED` is what a frozen stage reports - which is also what a stage
-  that is still loading reports, since both are "the frame counter did not move".
+- `TH10_STATE_PAUSED` is the pause menu being up, and only that: the game records
+  it as a page of its own, so no waiting is involved. A stage that is still loading
+  is not reported this way - the screens between runs are a scene of their own
+  (`0xd`, measured while an ending's menu walked into the next run).
 - `TH10_STATE_GAME_OVER` freezes the stage clock (measured: 4720 twice, half a
   second apart). The screen it belongs to still draws its `Player ★★` header, so
   the picture is not what to trust here.
@@ -186,6 +196,15 @@ nobody has touched resumes the stage - measured. That is the opposite of the gam
 over menu, whose cursor starts on its **last** entry, and the two menus look
 alike. Check which line is lit rather than assuming.
 
+The screen it opens is a page of its own, and it carries an id of its own:
+measured while a run sat paused, `th10_read_screen()` read id 2 there where the
+ending's menu reads 8, and pressing `down`, `up`, `up`, `down` walked its cursor
+through 0 -> 1 -> 0 -> 2 -> 0 at the same `+0x24` the ending's menu keeps. That id
+is what makes this screen report `TH10_SCREEN_KIND_PAUSE_MENU`, and it is why the
+pause is a single read now: without it the read answers `TH10_SCREEN_KIND_UNKNOWN`
+here, which a driver waiting for a pause cannot tell apart from a stage that never
+stopped.
+
 `Retry This Game` does not restart anything from this menu. It opens a
 confirmation - `本当に / Really?` over `はい / Yes` and `いいえ / No`, **with the
 cursor on `No`** - and answering `Yes` was measured to land on `TH10_STATE_MENU`
@@ -193,6 +212,13 @@ with no stage behind it, which is where `Quit and Return to Select` goes; the
 title's demo then started on its own a few seconds later. Whether the same label
 behaves differently in the game over menu was not established. Answering `No` (the
 default) simply closes the box and stays paused.
+
+The confirmation is a page of its own too, and that matters more than it looks:
+measured the same way, the object reads id 4 while the box is up, and the same
+`+0x24` that held 2 holds 1 - the `No` the box opens on - with the run still frozen
+behind it. A driver that went by the cursor alone would read that `0` as
+`Return to Game` and answer `Yes`, which is why the confirmation is a kind of its
+own rather than part of the pause menu.
 
 Two things that do **not** pause the game, both measured, because they look like
 they should: leaving it alone in a stage, and giving another window the

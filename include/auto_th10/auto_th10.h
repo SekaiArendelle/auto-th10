@@ -449,18 +449,19 @@ typedef enum th10_scene {
  * @brief Reports which family of screen the game is on.
  *
  * One word decides it (0x00491FB8): 0x4 is the title and the menus, 0x7 is a
- * stage, and anything else is a value this build does not know. It is a single
- * read with no waiting, which makes it the cheap way to ask "is the game in a
- * stage at all". th10_read_state() opens with exactly this question and then
- * spends its 120 ms on the part this cannot answer.
+ * stage, and anything else is a value this build does not know - 0xd is one of
+ * them, measured on the way from an ending's menu into the next run, where the
+ * game is loading rather than in either family. It is a single read with no
+ * waiting, which makes it the cheap way to ask "is the game in a stage at all".
+ * th10_read_state() opens with exactly this question.
  *
  * What it deliberately does not say is anything finer, and a caller should not
  * ask it to: a menu is six screens under one value (title, RANK, PLAYER SELECT,
  * WEAPON SELECT, the replay list, the name entry), and a stage is playing, paused
  * and over alike. For those, read the run's own numbers with
- * th10_read_snapshot(), and sample th10_read_stage_frames() twice to tell playing
- * from paused - which is a question about two moments in time, so no single read
- * can answer it.
+ * th10_read_snapshot(), and ask th10_read_screen() which page is up - the pause
+ * menu is a page of its own, so one read of it tells playing from paused, while
+ * sampling th10_read_stage_frames() twice only says that the clock has stopped.
  *
  * @param session The session from th10_open().
  * @return The family, or TH10_SCENE_UNKNOWN when the session is NULL or the word
@@ -480,28 +481,30 @@ typedef enum th10_state {
 /**
  * @brief Reports which of the five states the game is in.
  *
- * The state is read from three words of the game's static data rather than
- * inferred from bulk memory diffing:
+ * The state is read from the game's own state words rather than inferred from
+ * bulk memory diffing, and no part of this waits:
  *
- *   0x00491FB8  screen family: 0x4 is the title and menus, 0x7 is a stage
- *   0x00474C70  remaining lives: 2, 1, 0 alive, then -1 once the run is over
- *   0x00474C88  stage frame counter: advances while playing, freezes while paused
+ *   0x00491FB8          screen family: 0x4 is the title and menus, 0x7 a stage
+ *   0x00474C70          lives: 2, 1, 0 alive, then -1 once the run is over
+ *   [0x00477830] + 0x04 the page the game is driving: 2 is the pause menu and 4
+ *                       the confirmation its Retry This Game opens
  *
  * The screen family is what separates a menu from a stage, the lives counter
- * alone decides game over, and the frame counter is the only thing that can
- * tell playing from paused - both are family 0x7 and the pause menu sets no
- * flag that a single sample could read.
+ * alone decides game over, and the two pages a paused run drives - the pause menu
+ * and the confirmation behind its `Retry This Game` - decide playing from paused.
+ * Both are pages the game records itself, so the answer is one read rather than
+ * two samples of a counter that a loading stage freezes just as well.
  *
- * The first of those three is exposed on its own as th10_read_scene(), which is
- * one read with nothing to wait for; a caller that only needs "menu or stage"
- * should ask that rather than pay for this one.
+ * Nothing here waits, so a stage the game is still setting up is not PAUSED: the
+ * screens between runs are a scene of their own (0xd, measured on the way from
+ * an ending's menu into the next run), and the first moments back in the stage
+ * family - before the game has built its screen object - read PLAYING. What used
+ * to report PAUSED in both places was the frame counter standing still, which is
+ * not a pause, and is the question th10_read_stage_frames() is for.
  *
  * @param session The session from th10_open().
  * @return One of the five states, or TH10_STATE_UNKNOWN when a read failed or
  *         the state word holds none of the known values.
- *
- * @note This blocks for about 120 ms when it has to sample the frame counter
- *       twice; the menu and game-over answers return immediately.
  */
 th10_state th10_read_state(th10_session *session);
 
@@ -521,8 +524,19 @@ typedef enum th10_screen_result_tag {
  */
 typedef enum th10_screen_kind {
     TH10_SCREEN_KIND_UNKNOWN = 0, /**< the game's id maps to none of the kinds below */
-    TH10_SCREEN_KIND_STAGE, /**< a stage is the active object: playing and over alike */
-    TH10_SCREEN_KIND_MENU, /**< a menu is up; measured on the ending's menu */
+    TH10_SCREEN_KIND_STAGE, /**< a stage whose run is over: measured on a game over,
+                             *   where the screen id reads 6. A stage that is still
+                             *   playing reports 0 in the same field and is UNKNOWN
+                             *   here, so this kind is not "a stage is up" */
+    TH10_SCREEN_KIND_MENU, /**< the ending's own menu is up (id 8): `Continue`,
+                            *   `Save Replay`, `Quit and Return to Select`, with the
+                            *   cursor opening on the last of them */
+    TH10_SCREEN_KIND_PAUSE_MENU, /**< the pause menu ESCAPE opens over a running stage
+                                  *   (id 2): three entries, with the cursor opening
+                                  *   on `Return to Game`, which is entry 0 */
+    TH10_SCREEN_KIND_PAUSE_CONFIRM, /**< the confirmation the pause menu's `Retry This
+                                     *   Game` opens (id 4): two entries, `Yes` at 0
+                                     *   and `No`, where the cursor opens, at 1 */
     TH10_SCREEN_KIND_NAME_ENTRY /**< the Score Ranking name entry is waiting for a name */
 } th10_screen_kind;
 
@@ -531,10 +545,12 @@ typedef struct th10_screen_state {
     th10_screen_kind kind; /**< one of TH10_SCREEN_KIND_*, or UNKNOWN when the id maps
                             *   to no listed kind */
     int32_t cursor; /**< the highlighted entry: the menu's (0..2) on
-                     *   TH10_SCREEN_KIND_MENU, the name entry's grid cell (0..90) on
-                     *   TH10_SCREEN_KIND_NAME_ENTRY. A stage keeps neither, so this
-                     *   is then whatever the screen last left behind and means
-                     *   nothing. */
+                     *   TH10_SCREEN_KIND_MENU and TH10_SCREEN_KIND_PAUSE_MENU, the
+                     *   confirmation's (0..1, `Yes` first) on
+                     *   TH10_SCREEN_KIND_PAUSE_CONFIRM, the name entry's grid cell
+                     *   (0..90) on TH10_SCREEN_KIND_NAME_ENTRY. A stage keeps none,
+                     *   so this is then whatever the screen last left behind and
+                     *   means nothing. */
 } th10_screen_state;
 
 /** @brief The outcome of th10_read_screen(). */
@@ -554,14 +570,24 @@ typedef struct th10_screen_result {
  * themselves through - unlike the run's own numbers, this state lives in the
  * object rather than in static data, so the read is a pointer chase:
  *
- *   +0x04   screen id: 6 a stage, 8 a menu, 12 the Score Ranking name entry
- *   +0x24   the menu's highlighted entry, 0..2
+ *   +0x04   screen id: 6 a stage whose run is over, 8 a menu, 12 the Score
+ *           Ranking name entry, 2 the pause menu ESCAPE opens over a running
+ *           stage, 4 the confirmation its `Retry This Game` opens. A stage that
+ *           is still playing reports 0 here and the loading screens between runs
+ *           report 21, and neither of those is mapped to a kind
+ *   +0x24   the highlighted entry of any of those menus: 0..2 on a menu or the
+ *           pause menu, 0..1 on the confirmation
  *   +0xFC   the name entry's highlighted grid cell, 0..90
  *
- * The three ids and both cursors were measured against th10.exe 1.00a by
- * pressing one arrow key at a time on each screen and diffing the game's
- * committed memory around the press; the object pointer itself moved as the
- * game changed screens, which is why the id has to be read before the cursors.
+ * The ids and both cursors were measured against th10.exe 1.00a by pressing one
+ * arrow key at a time on each screen and diffing the game's committed memory
+ * around the press; the object pointer itself moved as the game changed screens,
+ * which is why the id has to be read before the cursors. Most of the ids were
+ * measured with a run behind them: the pause menu's +0x04 stayed 2 while down,
+ * up, up, down walked +0x24 through 0 -> 1 -> 0 -> 2 -> 0; confirming `Retry This
+ * Game` left the same object on id 4 with +0x24 at 1, the confirmation's `No`;
+ * and a stage that was playing read 0 on six reads in a row until the run ended,
+ * where the same field read 6.
  *
  * This is the read that tells the two endings apart. A plain game over and the
  * name entry look the same through everything else the binding exposes - both
@@ -573,8 +599,9 @@ typedef struct th10_screen_result {
  *         the reason the object could not be read.
  *
  * @note TH10_SCREEN_KIND_UNKNOWN is a normal answer, not a failure: it means the
- *       game is on a screen this binding has not measured. A caller must not
- *       treat it as "a stage".
+ *       game is on a screen this binding did not map, and a stage that is playing
+ *       is one of them. A caller must not treat it as "a stage", and must not
+ *       read it as proof that no stage is there either.
  */
 th10_screen_result th10_read_screen(th10_session *session);
 
@@ -619,11 +646,16 @@ typedef struct th10_write_result {
  * read back, so `value.cursor` is the game's answer rather than the request.
  *
  * A screen that keeps no cursor refuses rather than guessing: a stage and a screen
- * this binding has not measured are both TH10_WRITE_UNSUPPORTED_SCREEN.
+ * this binding has not measured are both TH10_WRITE_UNSUPPORTED_SCREEN. So does
+ * the pause menu's confirmation, which keeps one but has no caller here that
+ * needs it moved - the write side carries what the reads in this tree actually
+ * ask for, and not the whole of what the game keeps.
  *
  * @param session The session from th10_open().
- * @param entry The cursor to select: the menu's entry (0..2, `Continue` first) on
- *              TH10_SCREEN_KIND_MENU, the grid cell (0..90, `終` last) on
+ * @param entry The cursor to select: the menu's entry (0..2) on
+ *              TH10_SCREEN_KIND_MENU or TH10_SCREEN_KIND_PAUSE_MENU - `Continue`
+ *              on the ending's menu and `Return to Game` on the pause menu are
+ *              both entry 0 - the grid cell (0..90, `終` last) on
  *              TH10_SCREEN_KIND_NAME_ENTRY.
  * @return TH10_WRITE_SUCCESS with the cursor the game reports, or the reason it
  *         could not be moved.
@@ -654,10 +686,11 @@ typedef struct th10_frames_result {
  * @brief Reads the stage frame counter, the game's own clock.
  *
  * The word at 0x00474C88 advances while a stage is playing and freezes while it
- * is paused. It is the same word th10_read_state() samples twice to separate
- * playing from paused, exposed on its own so that a caller can wait for the game
- * to advance - or notice that it has stopped - without paying that built-in
- * 120 ms.
+ * is paused. It is exposed on its own so that a caller can wait for the game to
+ * advance - or notice that it has stopped - and it is not how a pause is read:
+ * th10_read_state() asks the pause menu, a page of the game's own, because a
+ * standing clock is also what a stage whose screen the game has not built yet
+ * looks like.
  *
  * @param session The session from th10_open().
  * @return TH10_FRAMES_SUCCESS with the counter in value.frames, or the reason it

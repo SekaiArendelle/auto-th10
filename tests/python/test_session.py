@@ -38,8 +38,18 @@ class ScreenKindTests(unittest.TestCase):
                 "TH10_SCREEN_KIND_UNKNOWN",
                 "TH10_SCREEN_KIND_STAGE",
                 "TH10_SCREEN_KIND_MENU",
+                "TH10_SCREEN_KIND_PAUSE_MENU",
+                "TH10_SCREEN_KIND_PAUSE_CONFIRM",
                 "TH10_SCREEN_KIND_NAME_ENTRY",
             },
+        )
+
+    def test_members_follow_the_c_enumerations_order(self) -> None:
+        # The binding and th10ctl index a table of names by the C value, so the
+        # order here is what keeps those tables aligned with the enumeration.
+        self.assertEqual(
+            [member.name for member in ScreenKind],
+            ["UNKNOWN", "STAGE", "MENU", "PAUSE_MENU", "PAUSE_CONFIRM", "NAME_ENTRY"],
         )
 
     def test_members_round_trip_from_text(self) -> None:

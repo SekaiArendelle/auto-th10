@@ -177,11 +177,12 @@ class FakeSession:
     def _apply(self, action: object) -> None:
         """Moves the fake game's cursor the way the real one does.
 
-        Only the presses the restart sequences send are modelled, and only the
-        arithmetic those sequences depend on: a direction on the name entry's grid
-        (one cell, rows wrapping) or in the ending's menu (one entry, the list
-        wrapping), and the confirm that leaves either screen. The real game's other
-        keys are not modelled because no sequence sends them here.
+        Only the presses the restart sequences and the pause boundary send are
+        modelled, and only the arithmetic those depend on: a direction on the name
+        entry's grid (one cell, rows wrapping) or in the ending's menu (one entry,
+        the list wrapping), the confirm that leaves either screen, and the ESCAPE
+        and SHOOT a run is paused and resumed with. The real game's other keys are
+        not modelled because nothing here sends them.
         """
         value = int(action)
         if value == int(Action.NONE):
@@ -189,7 +190,7 @@ class FakeSession:
         if value == int(Action.ESCAPE) and self.screen_kind is ScreenKind.STAGE:
             if self.accept_pause:
                 self.paused = True
-                self.screen_kind = ScreenKind.MENU
+                self.screen_kind = ScreenKind.PAUSE_MENU
                 self.screen_cursor = 0
         elif value == int(Action.SHOOT) and self.paused:
             if self.accept_resume:
@@ -239,12 +240,13 @@ class FakeSession:
         """
         if self.refuse_cursor_writes or self.screen_kind not in (
             ScreenKind.MENU,
+            ScreenKind.PAUSE_MENU,
             ScreenKind.NAME_ENTRY,
         ):
             raise RuntimeError("the screen the game is driving keeps no cursor")
         limit = (
             MENU_ENTRIES
-            if self.screen_kind is ScreenKind.MENU
+            if self.screen_kind in (ScreenKind.MENU, ScreenKind.PAUSE_MENU)
             else (NAME_ENTRY_LAST_ROW + 1) * NAME_ENTRY_COLUMNS
         )
         if not 0 <= cursor < limit:

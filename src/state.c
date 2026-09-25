@@ -8,15 +8,12 @@ enum {
     SCENE_MENU = 0x4u,
     SCENE_STAGE = 0x7u,
     LIVES_GAME_OVER = 0xFFFFFFFFu,
-    /* Long enough for a running stage to have advanced by several frames, short
-     * enough that both reads still describe the same moment. */
-    STATE_SAMPLE_INTERVAL_MS = 120,
 };
 
 /* The screen family, as one read and nothing more. It answers "menu or stage" and
  * refuses to answer anything finer: every finer distinction a caller could want
- * comes out of the snapshot, the frame counter, or th10_read_state() - which
- * opens with this same word and then spends its 120 ms on what is left. */
+ * comes out of the snapshot, the screen the game is driving, or the frame
+ * counter - which th10_read_state() opens with this same word and then asks. */
 th10_scene th10_read_scene(th10_session *session) {
     uint32_t scene = 0;
 
@@ -37,9 +34,8 @@ th10_scene th10_read_scene(th10_session *session) {
 
 th10_state th10_read_state(th10_session *session) {
     th10_scene scene;
+    th10_screen_result screen;
     uint32_t lives;
-    uint32_t frames_earlier;
-    uint32_t frames_later;
 
     if (session == NULL) {
         return TH10_STATE_UNKNOWN;
@@ -54,7 +50,7 @@ th10_state th10_read_state(th10_session *session) {
     }
 
     /* Inside the stage family: the lives counter alone says whether the run is
-     * still going, so this needs no second sample. */
+     * still going, so this needs no second sample either. */
     if (!th10_read_memory(session, TH10_LIVES_ADDRESS, &lives, sizeof(lives), NULL)) {
         return TH10_STATE_UNKNOWN;
     }
@@ -62,23 +58,27 @@ th10_state th10_read_state(th10_session *session) {
         return TH10_STATE_GAME_OVER;
     }
 
-    /* Playing and paused share the screen family and the pause menu sets no flag
-     * a single sample could read, so the frame counter is the only tell. */
-    if (!th10_read_memory(session, TH10_STAGE_FRAMES_ADDRESS, &frames_earlier, sizeof(frames_earlier),
-                          NULL)) {
+    /* Playing and paused share the screen family, and the pause menu is what
+     * tells them apart: the game records it as a page of its own, so one read of
+     * the screen answers what two samples of the frame counter could only guess
+     * at - and a stage whose screen the game has not built yet reads PLAYING
+     * here, where a standing clock would have called it paused. */
+    screen = th10_read_screen(session);
+    if (screen.tag != TH10_SCREEN_SUCCESS) {
         return TH10_STATE_UNKNOWN;
     }
-    Sleep(STATE_SAMPLE_INTERVAL_MS);
-    if (!th10_read_memory(session, TH10_STAGE_FRAMES_ADDRESS, &frames_later, sizeof(frames_later),
-                          NULL)) {
-        return TH10_STATE_UNKNOWN;
+    if (screen.value.state.kind == TH10_SCREEN_KIND_PAUSE_MENU ||
+        screen.value.state.kind == TH10_SCREEN_KIND_PAUSE_CONFIRM) {
+        return TH10_STATE_PAUSED;
     }
-    return frames_earlier != frames_later ? TH10_STATE_PLAYING : TH10_STATE_PAUSED;
+    return TH10_STATE_PLAYING;
 }
 
-/* The word th10_read_state() samples twice to separate playing from paused,
- * exposed on its own so that a caller can wait for the game to advance without
- * paying that built-in 120 ms. */
+/* The stage's own clock, exposed on its own so that a caller can wait for the
+ * game to advance a frame. It is not how a pause is read - the pause menu is a
+ * page of its own and th10_read_state() asks that one - but it is what says the
+ * clock has stopped, which is also what a stage that is still loading looks
+ * like. */
 th10_frames_result th10_read_stage_frames(th10_session *session) {
     th10_read_failure failure;
     uint32_t frames = 0;
@@ -103,14 +103,35 @@ th10_frames_result th10_read_stage_frames(th10_session *session) {
 enum {
     SCREEN_KIND_OFFSET = 0x04u,
     /* Each cursor is kept twice, a word apart: the game writes the pair in step
-     * and which of the two it reads back is not known, so both are written. */
+     * and which of the two it reads back is not known, so both are written. All
+     * three menus keep theirs here - the ending's, the pause menu and its
+     * confirmation - and it is the id that says which one a 0 means. */
     SCREEN_MENU_CURSOR_OFFSET = 0x24u,
     SCREEN_MENU_CURSOR_TWIN_OFFSET = 0x28u,
     SCREEN_NAME_CURSOR_OFFSET = 0xFCu,
     SCREEN_NAME_CURSOR_TWIN_OFFSET = 0x100u,
+    /* The stage's own screen, which is the one a run that is over wears - and
+     * only that one. A stage that is still playing reports 0 in the same field
+     * (measured six reads in a row while a fresh run's clock advanced), and 0
+     * is left unmapped on purpose: "is there a run, and is it over" is what the
+     * snapshot answers, and nothing else in this tree needs the playing stage's
+     * screen id. */
     SCREEN_ID_STAGE = 6,
     SCREEN_ID_MENU = 8,
     SCREEN_ID_NAME_ENTRY = 12,
+    /* A paused stage drives menus of its own, and each keeps an id of its own:
+     * measured while a run sat paused, where +0x04 read 2 rather than the 8 an
+     * ending's menu reads, and pressing down, up, up, down walked +0x24 through
+     * 0 -> 1 -> 0 -> 2 -> 0. So the pause menu's cursor is the menu's own field,
+     * its list wraps at both ends, and it holds the same three entries.
+     *
+     * The confirmation `Retry This Game` opens is the second one: the same
+     * object read 4 with +0x24 at 1, the `No` its cursor opens on, and the run
+     * stayed frozen behind it. It is a page of its own rather than part of the
+     * pause menu because a cursor means something else on it - 0 is `Yes` there,
+     * where 0 on the pause menu is `Return to Game`. */
+    SCREEN_ID_PAUSE_MENU = 2,
+    SCREEN_ID_PAUSE_CONFIRM = 4,
     /* How many entries each screen's cursor runs over. The grid's count is 91
      * rather than 7 rows of 13 because its last row is full: cell 90 is `終`. */
     SCREEN_MENU_ENTRY_COUNT = 3,
@@ -123,6 +144,14 @@ static th10_screen_kind screen_kind_from_id(uint32_t id) {
         return TH10_SCREEN_KIND_STAGE;
     case SCREEN_ID_MENU:
         return TH10_SCREEN_KIND_MENU;
+    case SCREEN_ID_PAUSE_MENU:
+        /* The two screens a paused run drives are kinds of their own, apart from
+         * the ending's menu on purpose: a caller that presses a key on a menu
+         * reads the cursor, and 0 is `Continue` on one, `Return to Game` on
+         * another and `Yes` on the third. */
+        return TH10_SCREEN_KIND_PAUSE_MENU;
+    case SCREEN_ID_PAUSE_CONFIRM:
+        return TH10_SCREEN_KIND_PAUSE_CONFIRM;
     case SCREEN_ID_NAME_ENTRY:
         return TH10_SCREEN_KIND_NAME_ENTRY;
     default:
@@ -162,10 +191,12 @@ th10_screen_result th10_read_screen(th10_session *session) {
     }
     result.value.state.kind = screen_kind_from_id(screen_id);
 
-    /* Only the two screens that keep a cursor have one; a stage answers 0, which
-     * is what its own fields happen to hold and not an entry. */
+    /* Only the screens that keep a cursor have one; a stage answers 0, which is
+     * what its own fields happen to hold and not an entry. */
     switch (result.value.state.kind) {
     case TH10_SCREEN_KIND_MENU:
+    case TH10_SCREEN_KIND_PAUSE_MENU:
+    case TH10_SCREEN_KIND_PAUSE_CONFIRM:
         cursor_offset = SCREEN_MENU_CURSOR_OFFSET;
         break;
     case TH10_SCREEN_KIND_NAME_ENTRY:
@@ -214,6 +245,12 @@ th10_write_result th10_write_screen_cursor(th10_session *session, int32_t entry)
 
     switch (screen_kind_from_id(screen_id)) {
     case TH10_SCREEN_KIND_MENU:
+    case TH10_SCREEN_KIND_PAUSE_MENU:
+        /* The ending's menu and the pause menu are one list each - three entries
+         * a cursor wraps around - which is why they share this arm. The
+         * confirmation is not here: it keeps a cursor and nothing in this tree
+         * needs it moved, and a write nothing reads is a write nothing has
+         * verified. */
         cursor_address = (uintptr_t)object + SCREEN_MENU_CURSOR_OFFSET;
         twin_address = (uintptr_t)object + SCREEN_MENU_CURSOR_TWIN_OFFSET;
         count = SCREEN_MENU_ENTRY_COUNT;

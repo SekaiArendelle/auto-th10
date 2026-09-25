@@ -790,6 +790,8 @@ static bool command_screen(const char *cursor_text) {
         "TH10_SCREEN_KIND_UNKNOWN",
         "TH10_SCREEN_KIND_STAGE",
         "TH10_SCREEN_KIND_MENU",
+        "TH10_SCREEN_KIND_PAUSE_MENU",
+        "TH10_SCREEN_KIND_PAUSE_CONFIRM",
         "TH10_SCREEN_KIND_NAME_ENTRY",
     };
     th10_screen_result result;
@@ -839,8 +841,8 @@ static bool command_screen(const char *cursor_text) {
 
 /* Reports the stage frame counter, the game's own clock: it advances while a
  * stage is playing and freezes while it is paused. Read twice, it tells "the
- * game moved" from "the game stopped" without the 120 ms th10_read_state()
- * spends on the same answer. */
+ * game moved" from "the game stopped" - which is a different question from "the
+ * pause menu is up", and the one `state` answers without waiting. */
 static bool command_frames(void) {
     th10_frames_result result;
     uint32_t frames;

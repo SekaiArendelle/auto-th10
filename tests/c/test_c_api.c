@@ -5,6 +5,7 @@
 
 int main(void) {
     th10_snapshot snapshot;
+    th10_state state = th10_read_state(NULL);
     th10_snapshot_result snapshot_result = th10_read_snapshot(NULL, NULL);
     th10_input_result input_result = th10_set_input(NULL, TH10_ACTION_NONE);
     th10_close_result close_result = th10_close(NULL);
@@ -19,6 +20,8 @@ int main(void) {
     assert(frames_result.tag == TH10_FRAMES_INVALID_SESSION);
     assert(screen_result.tag == TH10_SCREEN_INVALID_SESSION);
     assert(write_result.tag == TH10_WRITE_INVALID_SESSION);
+    assert(th10_read_scene(NULL) == TH10_SCENE_UNKNOWN);
+    assert(state == TH10_STATE_UNKNOWN);
     th10_snapshot_init(&snapshot);
     assert(snapshot.enemies.data == NULL);
     assert(snapshot.enemies.size == 0);
