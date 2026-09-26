@@ -75,13 +75,29 @@ has combined DirectInput and joystick state, before the original held/pressed/
 released and movement logic runs. Each update carries a 120-frame lease, so a
 controller that disappears falls back to physical input in about two seconds;
 normal close restores the original instructions immediately. Installation first
-checks the exact instruction bytes verified against `th10.exe` 1.00a and refuses
-another build instead of guessing.
+checks the executable's exact SHA-256 and then the patch-site instructions in
+the running process. The verified set is the original `th10.exe` 1.00a plus the
+`th10chs.exe` and `th10cht.exe` builds listed below; another build is refused
+instead of guessed from its filename or eight matching bytes.
 
 The optional `--input-backend foreground` compatibility path gives the game
 focus and sends virtual keys to the desktop. It can therefore interfere with
 other keyboard use and is never selected as an automatic fallback when the
 background bridge rejects an executable.
+
+Verified background-input executables:
+
+| Executable | SHA-256 |
+|------------|---------|
+| `th10.exe` 1.00a | `2F14760B6FBBF57549541583283BADB9A19A4222B90F0A146D5AA17F01DC9040` |
+| `th10chs.exe` | `97FDCEDE942D425BBB21A08067D95E08D916874A1CB399D73BE16737AFCA6A17` |
+| `th10cht.exe` | `3B2BDA90816BF4E5168A1A0AE0B33902D5C9BEE980B9DCA735848BE098646610` |
+
+The two localized builds have the same PE layout and input-reducer bytes as the
+original; their code changes are confined to font creation arguments. Other
+localized builds can still attach, read snapshots and use explicit foreground
+input, but `background_input=True`, training and the default `th10ctl hold` reject
+them until their exact binary has been verified.
 
 No command ever waits for input, so the tool is safe to call from a script:
 without a command it prints its usage, and `watch` reads 10 snapshots by default

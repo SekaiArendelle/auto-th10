@@ -189,7 +189,7 @@ typedef enum th10_input_result_tag {
     TH10_INPUT_INVALID_SESSION, /**< the session is NULL or already closed */
     TH10_INPUT_UNSUPPORTED_ACTION, /**< the mask had bits outside th10_action; see value.unsupported_action */
     TH10_INPUT_SEND_FAILED, /**< SendInput inserted fewer events than asked; see value.send_failed */
-    TH10_INPUT_BRIDGE_INCOMPATIBLE, /**< the running executable is not the verified TH10 1.00a code */
+    TH10_INPUT_BRIDGE_INCOMPATIBLE, /**< the executable is not a verified TH10 1.00a build */
     TH10_INPUT_BRIDGE_FAILED /**< installing, driving or removing the background bridge failed */
 } th10_input_result_tag;
 
@@ -396,8 +396,12 @@ th10_input_result th10_set_input(th10_session *session, uint32_t action_mask);
  * Each th10_set_input() refreshes a 120-frame lease. If the controller exits
  * without closing, the lease expires and the unmodified physical-input result
  * is used again. th10_disable_background_input() restores the original code.
- * Both operations verify the exact instruction bytes measured in a running
- * th10.exe 1.00a before writing anything.
+ * Installation requires the exact SHA-256 of a verified TH10 1.00a executable
+ * (the original, th10chs.exe or th10cht.exe builds documented in README.md).
+ * Enabling and disabling verify the expected patch-site image in the running
+ * process before writing anything. Other localized or patched builds may still
+ * attach and use the foreground input path, but are not accepted for code
+ * injection.
  *
  * @param session The session from th10_open().
  * @return TH10_INPUT_SUCCESS, or why the reversible bridge could not be installed.

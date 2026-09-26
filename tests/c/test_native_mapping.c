@@ -249,8 +249,8 @@ int main(void) {
     RAISE(raise_input_result(
         (th10_input_result){.tag = TH10_INPUT_BRIDGE_INCOMPATIBLE}));
     check_exception(PyExc_RuntimeError, "input: an incompatible game is rejected");
-    check_message(PyExc_RuntimeError, "verified TH10 1.00a",
-                  "input: the supported executable is named");
+    check_message(PyExc_RuntimeError, "original, th10chs, or th10cht",
+                  "input: the verified executable set is named");
     RAISE(raise_input_result((th10_input_result){
         .tag = TH10_INPUT_BRIDGE_FAILED,
         .value.bridge_failed = {

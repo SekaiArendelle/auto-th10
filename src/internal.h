@@ -109,7 +109,11 @@ static const uintptr_t TH10_RESOURCE_MANAGER_ADDRESS = 0x00477818u;
  * 2F14760B6FBBF57549541583283BADB9A19A4222B90F0A146D5AA17F01DC9040. A
  * 120-frame down lease then produced current/previous words 0x20/0x20 and a
  * hold count of 6 at that structure, before the original bytes were restored.
- * The bridge reproduces the two displaced instructions and returns at +8. */
+ * The bridge reproduces the two displaced instructions and returns at +8.
+ * On 2026-09-25 the th10chs.exe and th10cht.exe hashes listed in
+ * input_bridge.c were also checked: their PE layouts and the reducer bytes from
+ * this address through 0x0044A8FC match the original. Their only .text changes
+ * are fifteen font creation arguments at 0x00437A79..0x00437CE8. */
 static const uintptr_t TH10_INPUT_PATCH_ADDRESS = 0x0044A8BDu;
 static const uintptr_t TH10_INPUT_PATCH_RETURN_ADDRESS = 0x0044A8C5u;
 

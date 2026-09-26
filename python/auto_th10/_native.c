@@ -116,7 +116,8 @@ static int raise_input_result(th10_input_result result) {
                                        result.value.send_failed.requested_count);
         case TH10_INPUT_BRIDGE_INCOMPATIBLE:
             PyErr_SetString(PyExc_RuntimeError,
-                            "the running game does not match the verified TH10 1.00a input code");
+                            "the running game is not a verified TH10 1.00a executable "
+                            "(original, th10chs, or th10cht)");
             break;
         case TH10_INPUT_BRIDGE_FAILED:
             return raise_windows_error(result.value.bridge_failed.win32_error,
