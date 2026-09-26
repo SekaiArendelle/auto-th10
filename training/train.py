@@ -11,7 +11,6 @@ import random
 import statistics
 import sys
 
-from auto_th10 import NotInStage
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -121,8 +120,8 @@ def main(argv: list[str] | None = None) -> int:
         _write_hyperparameters(writer, args)
         print(f"TensorBoard logs: {run_dir}")
         print(f"Input backend: {INPUT_BACKEND}")
-        # Built inside the handler's reach: attaching to the game can itself be
-        # interrupted, or refused with NotInStage, before the first iteration.
+        # Built inside the cleanup scope: attaching to the game can itself be
+        # interrupted or fail before the first iteration.
         env = MemoryGymEnv(feature_spec=feature_spec)
         features, _ = env.reset(seed=args.seed)
         teacher.reset()
@@ -195,9 +194,6 @@ def main(argv: list[str] | None = None) -> int:
                 features, _ = env.reset()
             else:
                 features = result.next_features
-    except NotInStage as refused:
-        print(f"training stopped: {refused}", file=sys.stderr)
-        return 1
     except KeyboardInterrupt:
         print(f"training interrupted at iteration {iteration}", file=sys.stderr)
         return 130

@@ -234,9 +234,10 @@ quick checks.
 
 `--iterations` defaults to `inf`: the run then ends only when the game refuses
 to play (`NotInStage`) or at Ctrl+C, which names the iteration it stopped in.
-Held input is released either way, and an interrupt during an update leaves the
-game paused - the next start finds that menu and leaves it from `Return to Game`
-itself.
+`NotInStage` and other operational failures keep their traceback so the exact
+pause, resume, reset or restart call remains visible. Held input is released on
+every exit, and an interrupt during an update leaves the game paused - the next
+start finds that menu and leaves it from `Return to Game` itself.
 
 - `training/policy.py` - `FixedPolicy`, `EvasivePolicy` and `RandomPolicy`,
   behind one `Policy` boundary.

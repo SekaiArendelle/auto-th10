@@ -1,9 +1,12 @@
 import contextlib
 import io
 import json
+import pathlib
+import tempfile
 import unittest
+from unittest import mock
 
-from auto_th10 import Action, Point
+from auto_th10 import Action, NotInStage, Point
 from fakes import make_bullet, make_enemy, make_laser, make_snapshot, observe
 from training import collect, evaluate
 from training.dataset import SCHEMA_VERSION, to_row
@@ -42,6 +45,23 @@ class EvaluateTests(unittest.TestCase):
             evaluate.report(results, as_json=False)
 
         self.assertIn("step_limit", buffer.getvalue())
+
+    def test_a_runtime_refusal_keeps_its_traceback_and_closes_the_env(self) -> None:
+        env = mock.MagicMock()
+        env.__enter__.return_value = env
+
+        with (
+            mock.patch.object(evaluate, "Th10Env", return_value=env),
+            mock.patch.object(
+                evaluate,
+                "run_episodes",
+                side_effect=NotInStage("lost stage"),
+            ),
+            self.assertRaisesRegex(NotInStage, "lost stage"),
+        ):
+            evaluate.main([])
+
+        env.__exit__.assert_called_once()
 
 
 class CollectTests(unittest.TestCase):
@@ -110,6 +130,24 @@ class CollectTests(unittest.TestCase):
 
         self.assertIsNone(args.out)
         self.assertEqual(collect.DEFAULT_DIRECTORY.name, "runs")
+
+    def test_a_runtime_refusal_keeps_its_traceback_and_closes_the_env(self) -> None:
+        env = mock.MagicMock()
+        env.__enter__.return_value = env
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "rows.jsonl"
+            with (
+                mock.patch.object(collect, "Th10Env", return_value=env),
+                mock.patch.object(
+                    collect,
+                    "run_episodes",
+                    side_effect=NotInStage("lost stage"),
+                ),
+                self.assertRaisesRegex(NotInStage, "lost stage"),
+            ):
+                collect.main(["--out", str(output)])
+
+        env.__exit__.assert_called_once()
 
 
 if __name__ == "__main__":

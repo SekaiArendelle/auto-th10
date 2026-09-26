@@ -10,10 +10,9 @@ Rows go to runs/<timestamp>.jsonl; runs/ is ignored by Git.
 import argparse
 import json
 import pathlib
-import sys
 import time
 
-from auto_th10 import NotInStage, Settings, Th10Env
+from auto_th10 import Settings, Th10Env
 
 from . import dataset
 from .loop import Step, run_episodes
@@ -52,18 +51,14 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings.for_episodes(args.episodes)
     written = 0
 
-    try:
-        with Th10Env(settings=settings) as env, output.open("w", encoding="utf-8") as stream:
+    with Th10Env(settings=settings) as env, output.open("w", encoding="utf-8") as stream:
 
-            def record(step: Step) -> None:
-                nonlocal written
-                stream.write(json.dumps(dataset.to_row(step), sort_keys=True) + "\n")
-                written += 1
+        def record(step: Step) -> None:
+            nonlocal written
+            stream.write(json.dumps(dataset.to_row(step), sort_keys=True) + "\n")
+            written += 1
 
-            run_episodes(env, policy, args.episodes, max_steps=args.max_steps, on_step=record)
-    except NotInStage as refused:
-        print(f"the agent did not run: {refused}", file=sys.stderr)
-        return 1
+        run_episodes(env, policy, args.episodes, max_steps=args.max_steps, on_step=record)
 
     print(f"wrote {written} step(s) to {output}")
     return 0

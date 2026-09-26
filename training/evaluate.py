@@ -8,9 +8,8 @@ Start the game, enter a stage by hand, and run it.
 import argparse
 import json
 import statistics
-import sys
 
-from auto_th10 import NotInStage, Settings, Th10Env
+from auto_th10 import Settings, Th10Env
 
 from .loop import EpisodeResult, run_episodes
 from .policy import POLICIES
@@ -44,12 +43,14 @@ def main(argv: list[str] | None = None) -> int:
     policy = POLICIES[args.policy]()
     results: list[EpisodeResult] = []
 
-    try:
-        with Th10Env(settings=settings) as env:
-            run_episodes(env, policy, args.episodes, max_steps=args.max_steps, on_episode=results.append)
-    except NotInStage as refused:
-        print(f"the agent did not run: {refused}", file=sys.stderr)
-        return 1
+    with Th10Env(settings=settings) as env:
+        run_episodes(
+            env,
+            policy,
+            args.episodes,
+            max_steps=args.max_steps,
+            on_episode=results.append,
+        )
 
     report(results, as_json=args.json)
     return 0

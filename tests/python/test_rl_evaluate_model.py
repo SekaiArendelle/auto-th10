@@ -1,12 +1,13 @@
 import contextlib
 import io
 import json
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 import numpy as np
 
-from auto_th10 import Action
+from auto_th10 import Action, NotInStage
 from fakes import FakeSession, make_bullet, make_environment, make_snapshot
 from training import evaluate_model
 from training.rl import ActionSample, EvasiveTeacher, MemoryGymEnv, ModelAction
@@ -44,6 +45,28 @@ class EvaluateModelTests(unittest.TestCase):
                 evaluate_model.main(["--episodes", "2", "--max-steps", "10"])
 
         self.assertEqual(raised.exception.code, 2)
+
+    def test_a_runtime_refusal_keeps_its_traceback_and_closes_the_env(self) -> None:
+        env = mock.Mock()
+        checkpoint = SimpleNamespace(feature_spec=object(), model=object())
+
+        with (
+            mock.patch.object(
+                evaluate_model,
+                "load_checkpoint",
+                return_value=checkpoint,
+            ),
+            mock.patch.object(evaluate_model, "MemoryGymEnv", return_value=env),
+            mock.patch.object(
+                evaluate_model,
+                "evaluate_episode",
+                side_effect=NotInStage("lost stage"),
+            ),
+            self.assertRaisesRegex(NotInStage, "lost stage"),
+        ):
+            evaluate_model.main([])
+
+        env.close.assert_called_once_with()
 
     def test_episode_executes_only_the_model_and_measures_teacher_disagreement(
         self,

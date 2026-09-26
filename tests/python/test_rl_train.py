@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+from auto_th10 import NotInStage
 from training import train
 
 
@@ -261,6 +262,23 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertEqual(code, 130)
         self.assertIn("training interrupted at iteration 1", stderr.getvalue())
         self.assertTrue(env.closed)
+
+    def test_a_runtime_refusal_keeps_its_traceback_and_cleans_up(self) -> None:
+        env = _FakeEnv()
+
+        with (
+            mock.patch.object(train, "MemoryGymEnv", return_value=env),
+            mock.patch.object(
+                train,
+                "run_dagger_iteration",
+                side_effect=NotInStage("lost stage"),
+            ),
+            self.assertRaisesRegex(NotInStage, "lost stage"),
+        ):
+            train.main([])
+
+        self.assertTrue(env.closed)
+        self.writer.close.assert_called_once_with()
 
     def test_an_interrupt_while_attaching_still_stops_cleanly(self) -> None:
         stderr = io.StringIO()

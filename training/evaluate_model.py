@@ -9,8 +9,6 @@ import sys
 
 import numpy as np
 
-from auto_th10 import NotInStage
-
 from .rl import (
     CheckpointError,
     EvasiveTeacher,
@@ -102,9 +100,6 @@ def main(argv: list[str] | None = None) -> int:
                     episode=episode,
                 )
             )
-    except NotInStage as refused:
-        print(f"the model did not run: {refused}", file=sys.stderr)
-        return 1
     finally:
         env.close()
     report(results, as_json=args.json)
