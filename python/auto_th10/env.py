@@ -335,32 +335,37 @@ class Th10Env:
         return Observation(snapshot=snapshot)
 
     def resume(self) -> Observation:
-        """Resume this environment's pause and return the first live observation.
+        """Resume this environment's pause and return its next observation.
 
         Z is only safe while the pause cursor remains on ``Return to Game``. The
         cursor is checked immediately before the press, and success is not
-        reported until the stage clock advances again and a live snapshot can be
-        read. If either input leaves the outcome uncertain, the episode becomes
-        interrupted and reset() is required before any later action.
+        reported until the stage clock advances again and a snapshot can be read.
+        A death that becomes visible before or while the pause closes is returned
+        as a terminal observation. If either input leaves the outcome uncertain,
+        the episode becomes interrupted and reset() is required before any later
+        action.
         """
         if self._phase is not _Phase.PAUSED:
             raise NotInStage("the episode is not paused: call pause() before resume()")
         try:
             self.session.focus()
-            self._require_own_pause()
+            snapshot = self._require_own_pause()
         except BaseException:
             self._phase = _Phase.INTERRUPTED
             raise
         try:
-            restart.tap(self.session, Action.SHOOT, seconds=restart.TAP_SECONDS)
-            stage_frames, snapshot = self._wait_until_resumed()
+            if snapshot.game_over:
+                stage_frames = self._leave_terminal_pause()
+            else:
+                restart.tap(self.session, Action.SHOOT, seconds=restart.TAP_SECONDS)
+                stage_frames, snapshot = self._wait_until_resumed()
         except BaseException:
             self._phase = _Phase.INTERRUPTED
             self._release_input()
             raise
         self._advance_frame_count(stage_frames)
         self._snapshot = snapshot
-        self._phase = _Phase.RUNNING
+        self._phase = _Phase.ENDED if snapshot.game_over else _Phase.RUNNING
         return Observation(snapshot=snapshot)
 
     @property
@@ -596,19 +601,43 @@ class Th10Env:
             time.sleep(self.poll_seconds)
 
     def _wait_until_resumed(self) -> tuple[int, Snapshot]:
-        """Return the first live snapshot after the paused clock advances."""
+        """Return the first live or terminal snapshot after closing the pause."""
         deadline = time.monotonic() + self.frame_timeout_s
+        terminal_deadline: float | None = None
         while True:
             frames = self.session.stage_frames()
-            if frames != self._stage_frames:
-                snapshot = self._look()
-                if snapshot is not None and not snapshot.game_over:
-                    return frames, snapshot
-                if snapshot is not None:
-                    raise NotInStage("the run ended while leaving the pause menu")
+            snapshot = self._look()
+            screen = self.session.screen()
+            if screen.kind is ScreenKind.PAUSE_CONFIRM:
+                raise NotInStage(
+                    "the pause menu opened its Retry confirmation while resuming"
+                )
+            if screen.kind is ScreenKind.PAUSE_MENU:
+                pass
+            elif snapshot is not None and snapshot.game_over:
+                return frames, snapshot
+            elif screen.kind is ScreenKind.STAGE:
+                if terminal_deadline is None:
+                    terminal_deadline = (
+                        time.monotonic() + self.transition_timeout_s
+                    )
+            elif (
+                screen.kind is ScreenKind.UNKNOWN
+                and terminal_deadline is None
+                and snapshot is not None
+                and frames != self._stage_frames
+            ):
+                return frames, snapshot
             if self.session.scene() is not Scene.STAGE:
                 raise NotInStage("the game left the stage while resuming")
-            if time.monotonic() >= deadline:
+            now = time.monotonic()
+            if terminal_deadline is not None and now >= terminal_deadline:
+                raise NotInStage(
+                    "the game-over snapshot did not become ready while leaving "
+                    "the pause menu within "
+                    f"{self.transition_timeout_s:g} s"
+                )
+            if terminal_deadline is None and now >= deadline:
                 raise NotInStage(
                     f"the stage did not resume within {self.frame_timeout_s:g} s"
                 )
@@ -660,19 +689,21 @@ class Th10Env:
                 )
             time.sleep(self.poll_seconds)
 
-    def _require_own_pause(self) -> None:
-        """Refuse to press Z unless the game is still at our frozen boundary.
+    def _require_own_pause(self) -> Snapshot:
+        """Return the paused snapshot after verifying the safe boundary.
 
         The pause menu is the only page Z may be sent from, and only with the
         cursor on `Return to Game`. The confirmation behind `Retry This Game`
         keeps its cursor in the same field and opens on `No`, and a Z on its 0
-        would answer `Yes` - so its page is a refusal like any other.
+        would answer `Yes` - so its page is a refusal like any other. A terminal
+        snapshot is allowed through only after those checks so resume() can close
+        the verified pause and report the ending.
         """
         if self.session.scene() is not Scene.STAGE:
             raise NotInStage("the game left the paused stage: resume it manually")
         snapshot = self._look()
-        if snapshot is None or snapshot.game_over:
-            raise NotInStage("the paused run is no longer live: resume it manually")
+        if snapshot is None:
+            raise NotInStage("the paused run is no longer available: resume it manually")
         frames = self.session.stage_frames()
         if frames != self._stage_frames:
             raise NotInStage(
@@ -686,6 +717,7 @@ class Th10Env:
             raise NotInStage(
                 "the pause menu is not on Return to Game: resume it manually"
             )
+        return snapshot
 
     def _advance_frame_count(self, stage_frames: int) -> int:
         """Accumulate a raw stage clock that can restart between stages."""

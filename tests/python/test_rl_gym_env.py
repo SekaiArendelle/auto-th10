@@ -265,6 +265,32 @@ class MemoryGymEnvTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "after the episode ends"):
             env.step(np.asarray([0, 0], dtype=np.int64))
 
+    def test_resume_reports_a_run_that_ended_as_the_menu_closed(self) -> None:
+        terminal = make_snapshot(lives=-1, game_over=True)
+
+        class DeathOnResumeSession(FakeSession):
+            def _apply(self, action: object) -> None:
+                was_paused = self.paused
+                super()._apply(action)
+                if action == Action.SHOOT and was_paused and not self.paused:
+                    self._snapshots = [terminal]
+
+        session = DeathOnResumeSession(snapshots=(make_snapshot(lives=0),))
+        env = self.make_env(session)
+        env.reset()
+        env.pause()
+
+        observation, info = env.resume()
+
+        self.assertTrue(env.observation_space.contains(observation))
+        self.assertTrue(info["terminated"])
+        self.assertEqual(info["reward/life"], -1.0)
+        self.assertEqual(info["reward/game_over"], -1.0)
+        self.assertEqual(info["reward/total"], -2.0)
+        self.assertFalse(session.paused)
+        with self.assertRaisesRegex(RuntimeError, "after the episode ends"):
+            env.step(np.asarray([0, 0], dtype=np.int64))
+
     def test_pause_requires_a_live_episode(self) -> None:
         env = self.make_env(FakeSession())
 

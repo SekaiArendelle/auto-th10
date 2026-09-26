@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
                 rollout: DaggerRollout,
                 updates: tuple[ImitationMetrics, ...],
             ) -> None:
-                nonlocal episode, episode_reward, episode_frames, episode_bombs
+                del rollout
                 save_checkpoint(
                     args.checkpoint,
                     iteration=iteration,
@@ -150,28 +150,6 @@ def main(argv: list[str] | None = None) -> int:
                     buffer_size=len(buffer),
                     updates=updates,
                 )
-                _log_rollout_metrics(writer, rollout, iteration=iteration)
-                episode_reward, episode_frames, episode_bombs = (
-                    _accumulate_episode(
-                        rollout,
-                        reward=episode_reward,
-                        frames=episode_frames,
-                        bombs=episode_bombs,
-                    )
-                )
-                if rollout.terminated or rollout.truncated:
-                    _log_episode_metrics(
-                        writer,
-                        episode=episode,
-                        reward=episode_reward,
-                        frames=episode_frames,
-                        score=env.raw_observation.snapshot.score,
-                        bombs=episode_bombs,
-                    )
-                    episode += 1
-                    episode_reward = 0.0
-                    episode_frames = 0
-                    episode_bombs = 0
                 writer.flush()
 
             result = run_dagger_iteration(
@@ -190,8 +168,29 @@ def main(argv: list[str] | None = None) -> int:
                 rng=rng,
                 after_updates=finish_updates,
             )
+            rollout = result.rollout
+            _log_rollout_metrics(writer, rollout, iteration=iteration)
+            episode_reward, episode_frames, episode_bombs = _accumulate_episode(
+                rollout,
+                reward=episode_reward,
+                frames=episode_frames,
+                bombs=episode_bombs,
+            )
+            if rollout.terminated or rollout.truncated:
+                _log_episode_metrics(
+                    writer,
+                    episode=episode,
+                    reward=episode_reward,
+                    frames=episode_frames,
+                    score=env.raw_observation.snapshot.score,
+                    bombs=episode_bombs,
+                )
+                episode += 1
+                episode_reward = 0.0
+                episode_frames = 0
+                episode_bombs = 0
             beta = max(args.beta_min, beta * args.beta_decay)
-            if result.rollout.terminated or result.rollout.truncated:
+            if rollout.terminated or rollout.truncated:
                 teacher.reset()
                 features, _ = env.reset()
             else:

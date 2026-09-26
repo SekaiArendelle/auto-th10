@@ -9,6 +9,7 @@ from auto_th10 import (
     OnDeath,
     Scene,
     ScreenKind,
+    ScreenState,
     SessionClosedError,
     Settings,
 )
@@ -720,18 +721,148 @@ class PauseTests(NoWaiting, unittest.TestCase):
 
         self.assertEqual(session.inputs, inputs_before_resume)
 
-    def test_resume_refuses_a_game_over_menu_without_sending_z(self) -> None:
+    def test_resume_closes_a_pause_that_became_terminal_during_updates(self) -> None:
         session = FakeSession()
         env = make_environment(session)
         env.reset()
         env.pause()
         session._snapshots = [make_snapshot(game_over=True)]
-        inputs_before_resume = list(session.inputs)
 
-        with self.assertRaisesRegex(NotInStage, "no longer live"):
+        observation = env.resume()
+
+        self.assertTrue(observation.snapshot.game_over)
+        self.assertFalse(session.paused)
+        self.assertEqual(session.inputs[-2:], [Action.SHOOT, Action.NONE])
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_resume_reports_a_death_committed_as_the_pause_closes(self) -> None:
+        terminal = make_snapshot(lives=-1, game_over=True)
+
+        class DeathOnResumeSession(FakeSession):
+            def _apply(self, action: object) -> None:
+                was_paused = self.paused
+                super()._apply(action)
+                if action == Action.SHOOT and was_paused and not self.paused:
+                    self._snapshots = [terminal]
+
+        session = DeathOnResumeSession(snapshots=(make_snapshot(lives=0),))
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+
+        observation = env.resume()
+
+        self.assertTrue(observation.snapshot.game_over)
+        self.assertFalse(session.paused)
+        self.assertEqual(session.inputs[-2:], [Action.SHOOT, Action.NONE])
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_resume_waits_for_a_terminal_pause_menu_to_close(self) -> None:
+        terminal = make_snapshot(lives=-1, game_over=True)
+
+        class DelayedCloseSession(FakeSession):
+            def __init__(self) -> None:
+                super().__init__(snapshots=(make_snapshot(lives=0),))
+                self.resume_requested = False
+                self.resume_screen_reads = 0
+
+            def _apply(self, action: object) -> None:
+                if action == Action.SHOOT and self.paused:
+                    self.resume_requested = True
+                    self._snapshots = [terminal]
+                    return
+                super()._apply(action)
+
+            def screen(self) -> ScreenState:
+                if self.resume_requested:
+                    self.resume_screen_reads += 1
+                    if self.resume_screen_reads == 2:
+                        self.paused = False
+                        self.screen_kind = ScreenKind.UNKNOWN
+                return super().screen()
+
+        session = DelayedCloseSession()
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+
+        observation = env.resume()
+
+        self.assertTrue(observation.snapshot.game_over)
+        self.assertFalse(session.paused)
+        self.assertEqual(session.resume_screen_reads, 2)
+        self.assertEqual(session.inputs[-2:], [Action.SHOOT, Action.NONE])
+
+    def test_resume_refuses_a_confirmation_reached_after_shoot(self) -> None:
+        terminal = make_snapshot(lives=-1, game_over=True)
+
+        class ConfirmingResumeSession(FakeSession):
+            def _apply(self, action: object) -> None:
+                if action == Action.SHOOT and self.paused:
+                    self.screen_kind = ScreenKind.PAUSE_CONFIRM
+                    self.screen_cursor = 0
+                    self._snapshots = [terminal]
+                    return
+                super()._apply(action)
+
+        session = ConfirmingResumeSession(snapshots=(make_snapshot(lives=0),))
+        env = make_environment(session)
+        env.reset()
+        env.pause()
+
+        with self.assertRaisesRegex(NotInStage, "Retry confirmation"):
             env.resume()
 
-        self.assertEqual(session.inputs, inputs_before_resume)
+        self.assertIs(session.screen_kind, ScreenKind.PAUSE_CONFIRM)
+        self.assertEqual(session.inputs[-1], Action.NONE)
+        with self.assertRaisesRegex(NotInStage, "call reset"):
+            env.step(Action.NONE)
+
+    def test_run_over_screen_extends_resume_for_its_terminal_snapshot(self) -> None:
+        terminal = make_snapshot(lives=-1, game_over=True)
+
+        class DelayedDeathOnResumeSession(FakeSession):
+            def __init__(self, **kwargs: object) -> None:
+                super().__init__(**kwargs)
+                self.resume_screen_reads = 0
+
+            def _apply(self, action: object) -> None:
+                was_paused = self.paused
+                super()._apply(action)
+                if action == Action.SHOOT and was_paused and not self.paused:
+                    self.screen_kind = ScreenKind.STAGE
+
+            def screen(self) -> ScreenState:
+                if self.screen_kind is ScreenKind.STAGE:
+                    self.resume_screen_reads += 1
+                    if self.resume_screen_reads > 1:
+                        self.screen_kind = ScreenKind.UNKNOWN
+                return super().screen()
+
+        live = make_snapshot(lives=0)
+        session = DelayedDeathOnResumeSession(
+            snapshots=(live, live, live, live, live, terminal),
+        )
+        env = make_environment(
+            session,
+            frame_timeout_s=2.0,
+            transition_timeout_s=10.0,
+        )
+        env.reset()
+        env.pause()
+
+        with mock.patch.object(
+            env_module.time,
+            "monotonic",
+            side_effect=(0.0, 3.0, 6.0, 7.0),
+        ):
+            observation = env.resume()
+
+        self.assertTrue(observation.snapshot.game_over)
+        self.assertFalse(session.paused)
+        self.assertEqual(session.resume_screen_reads, 2)
 
     def test_resume_refuses_a_pause_whose_saved_clock_has_moved(self) -> None:
         session = FakeSession()

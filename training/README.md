@@ -96,14 +96,14 @@ rollout boundary. The environment enables the background-input bridge when it
 opens its session, so it releases the policy's held action and taps `ESCAPE`
 without taking focus, then returns only after the stage clock has stayed frozen
 for a full sample interval and the pause cursor has been read on `Return to Game`.
-Its matching `resume()` rechecks the stage family, live run,
-unchanged frozen clock, menu and cursor before tapping `SHOOT`, then waits for the
-clock and snapshots to become live. Both return the observation at their verified
-side of the boundary; `MemoryGymEnv` encodes and exposes those values so the
-trainer never reaches through it to the session. If confirmation fails after an
-input, the environment is interrupted rather than guessing where that input
-landed. Calling `reset()` while paused refuses without discarding this boundary,
-so the caller can still resume it safely.
+Its matching `resume()` rechecks the stage family, snapshot, unchanged frozen
+clock, menu and cursor before tapping `SHOOT`, then waits for the clock and
+snapshot to become live. Both return the observation at their verified side of
+the boundary; `MemoryGymEnv` encodes and exposes those values so the trainer never
+reaches through it to the session. If confirmation fails after an input, the
+environment is interrupted rather than guessing where that input landed. Calling
+`reset()` while paused refuses without discarding this boundary, so the caller can
+still resume it safely.
 
 A death can land in the short interval between the rollout's final live snapshot
 and the pause menu opening. That boundary is terminal rather than a training
@@ -116,6 +116,13 @@ switches the wait from the short pause deadline to the longer stage-transition
 deadline without itself being treated as a terminal snapshot. An unreadable
 snapshot or an unexpected page is still refused; only an observed `game_over`
 takes this path.
+
+A death can also become visible only after the pause has opened: either while the
+trainer is updating or in the first frame after `resume()` closes the menu. That
+is the same terminal boundary, not a resume failure. The pause is still closed
+only from its verified `Return to Game` entry; the terminal snapshot, reward and
+frame count are then returned through `MemoryGymEnv` and attached to the DAgger
+rollout so the next iteration can restart normally.
 
 The game over menu is walked for the same reason. Its cursor opens on
 `Quit and Return to Select`, so a driver that only keeps pressing `<Z>` retreats to

@@ -234,6 +234,48 @@ class DaggerTests(unittest.TestCase):
         self.assertEqual(callback_pause_states, [False])
         self.assertTrue(env.raw_observation.snapshot.game_over)
 
+    def test_a_death_while_pause_closes_becomes_a_terminal_rollout(self) -> None:
+        terminal = make_snapshot(lives=-1, game_over=True)
+
+        class DeathOnResumeSession(FakeSession):
+            def _apply(self, action: object) -> None:
+                was_paused = self.paused
+                super()._apply(action)
+                if action == Action.SHOOT and was_paused and not self.paused:
+                    self._snapshots = [terminal]
+
+        session = DeathOnResumeSession(snapshots=(make_snapshot(lives=0),))
+        env = self.make_env(session)
+        features, _ = env.reset()
+        model = ActorCritic(ModelSpec(features.size, hidden_sizes=(8,)))
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        callback_pause_states: list[bool] = []
+
+        result = run_dagger_iteration(
+            env,
+            model,
+            EvasiveTeacher(),
+            optimizer,
+            DaggerBuffer(),
+            features,
+            horizon=1,
+            beta=0.0,
+            batch_size=1,
+            update_steps=0,
+            rng=random.Random(8),
+            after_updates=lambda rollout, updates: callback_pause_states.append(
+                session.paused
+            ),
+        )
+
+        self.assertTrue(result.rollout.terminated)
+        self.assertFalse(result.rollout.truncated)
+        self.assertEqual(result.rollout.boundary_reward, -2.0)
+        self.assertGreaterEqual(result.rollout.boundary_frames, 0)
+        self.assertFalse(session.paused)
+        self.assertEqual(callback_pause_states, [True])
+        self.assertTrue(env.raw_observation.snapshot.game_over)
+
     def test_collection_failure_stops_the_environment(self) -> None:
         session = self.dangerous_session()
         env = self.make_env(session)

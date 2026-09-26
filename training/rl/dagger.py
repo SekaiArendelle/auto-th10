@@ -296,11 +296,21 @@ def run_dagger_iteration(
         raise
     if live:
         next_features, info = env.resume()
-        try:
-            teacher.advance(frames=int(info["delta_frames"]))
-        except BaseException:
-            env.stop()
-            raise
+        if bool(info["terminated"]):
+            rollout = replace(
+                rollout,
+                next_features=next_features,
+                terminated=True,
+                boundary_reward=float(info["reward/total"]),
+                boundary_frames=int(info["delta_frames"]),
+                episode_frames=int(info["frames"]),
+            )
+        else:
+            try:
+                teacher.advance(frames=int(info["delta_frames"]))
+            except BaseException:
+                env.stop()
+                raise
     else:
         next_features = rollout.next_features
     return DaggerIteration(

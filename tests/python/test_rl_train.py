@@ -69,7 +69,12 @@ class TrainEntryPointTests(unittest.TestCase):
         stdout = io.StringIO()
         iteration = SimpleNamespace(
             rollout=SimpleNamespace(
-                samples=(), terminated=False, truncated=False
+                samples=(),
+                terminated=False,
+                truncated=False,
+                boundary_reward=0.0,
+                boundary_frames=0,
+                episode_frames=0,
             ),
             next_features="features",
         )
@@ -86,6 +91,61 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertTrue(env.closed)
         self.assertIn("Input backend: background", stdout.getvalue())
         self.writer.close.assert_called_once_with()
+
+    def test_a_late_terminal_boundary_is_logged_after_resume(self) -> None:
+        env = _FakeEnv()
+        env.raw_observation = SimpleNamespace(snapshot=SimpleNamespace(score=123))
+        sample = SimpleNamespace(
+            reward=0.0,
+            frames=0,
+            episode_frames=10,
+            executed_action=SimpleNamespace(bomb=False),
+            learner_action=SimpleNamespace(movement=0),
+            teacher_action=SimpleNamespace(movement=0, bomb=False),
+            used_teacher=False,
+        )
+        preliminary = SimpleNamespace(
+            samples=(sample,),
+            terminated=False,
+            truncated=False,
+            boundary_reward=0.0,
+            boundary_frames=0,
+            episode_frames=10,
+        )
+        terminal = SimpleNamespace(
+            samples=(sample,),
+            terminated=True,
+            truncated=False,
+            boundary_reward=-2.0,
+            boundary_frames=1,
+            episode_frames=11,
+        )
+        iteration = SimpleNamespace(rollout=terminal, next_features="terminal")
+
+        def run_iteration(*args: object, **kwargs: object) -> object:
+            del args
+            kwargs["after_updates"](preliminary, ())
+            return iteration
+
+        with (
+            mock.patch.object(train, "MemoryGymEnv", return_value=env),
+            mock.patch.object(train, "run_dagger_iteration", side_effect=run_iteration),
+            mock.patch.object(train, "save_checkpoint"),
+        ):
+            code = train.main(["--iterations", "1"])
+
+        self.assertEqual(code, 0)
+        self.writer.add_scalar.assert_has_calls(
+            (
+                mock.call("rollout/reward", -2.0, 1),
+                mock.call("rollout/frames", 1, 1),
+                mock.call("rollout/terminated", 1, 1),
+                mock.call("episode/reward", -2.0, 0),
+                mock.call("episode/survival_frames", 11, 0),
+                mock.call("episode/score", 123, 0),
+            ),
+            any_order=True,
+        )
 
     def test_hyperparameters_name_the_fixed_input_backend(self) -> None:
         args = train.build_parser().parse_args([])
