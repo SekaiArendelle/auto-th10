@@ -76,6 +76,7 @@ class EvaluateModelTests(unittest.TestCase):
             snapshots=(
                 make_snapshot(
                     player=player,
+                    power=20,
                     enemy_bullets=(make_bullet(*player),),
                 ),
                 make_snapshot(player=player, score=123, game_over=True),

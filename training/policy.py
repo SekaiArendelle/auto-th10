@@ -19,6 +19,9 @@ from auto_th10 import Action, Observation, Snapshot
 from . import dodging
 from .shooting import shoot_action
 
+BOMB_POWER_COST = 20
+"""The minimum raw snapshot power value at which TH10 accepts a bomb."""
+
 
 class Policy(Protocol):
     """Decides the action to hold until the next decision."""
@@ -82,9 +85,9 @@ class EvasivePolicy:
     see, and drops the ones that get hit. What survives is ranked by how good the
     spot it ends on is: low on the field and centred is safe, lined up under an
     enemy is where the shots land, near a resource point is worth the risk. Only
-    when nothing survives - every candidate is hit within `bomb_frames` - does it
-    spend a bomb, and then it leaves the bomb key alone for
-    `bomb_cooldown_frames` frames.
+    when nothing survives - every candidate is hit within `bomb_frames` - and
+    the raw power value is at least 20 does it spend a bomb, and then it leaves
+    the bomb key alone for `bomb_cooldown_frames` frames.
 
     The shape is TH10AI's `GameManager`, which searches the same moves with a BFS
     over a value map. Two things are deliberately different. The value is read
@@ -197,7 +200,11 @@ class EvasivePolicy:
         else:
             frames, _, _, action = max(ranked, key=lambda move: move[:3])
 
-        if frames <= self.bomb_frames and self._cooldown == 0:
+        if (
+            frames <= self.bomb_frames
+            and self._cooldown == 0
+            and snapshot.power >= BOMB_POWER_COST
+        ):
             return action | shoot_action(snapshot, decision) | Action.BOMB
         return action | shoot_action(snapshot, decision)
 

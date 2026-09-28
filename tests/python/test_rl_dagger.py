@@ -63,6 +63,7 @@ class DaggerTests(unittest.TestCase):
     def dangerous_session(self) -> FakeSession:
         snapshot = make_snapshot(
             player=(0.0, 400.0),
+            power=20,
             enemy_bullets=(make_bullet(0.0, 400.0),),
         )
         return FakeSession(snapshots=(snapshot,))

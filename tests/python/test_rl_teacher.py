@@ -9,11 +9,14 @@ PLAYER = (0.0, 400.0)
 
 
 class EvasiveTeacherTests(unittest.TestCase):
-    def dangerous_observation(self, *, lives: int = 2) -> Observation:
+    def dangerous_observation(
+        self, *, lives: int = 2, power: int = 20
+    ) -> Observation:
         return observe(
             make_snapshot(
                 player=PLAYER,
                 lives=lives,
+                power=power,
                 enemy_bullets=(make_bullet(*PLAYER),),
             )
         )
@@ -32,6 +35,14 @@ class EvasiveTeacherTests(unittest.TestCase):
         label = teacher.annotate(self.dangerous_observation())
 
         self.assertTrue(label.bomb)
+        teacher.feedback(label, frames=1)
+
+    def test_it_does_not_label_a_bomb_without_enough_power(self) -> None:
+        teacher = EvasiveTeacher()
+
+        label = teacher.annotate(self.dangerous_observation(power=19))
+
+        self.assertFalse(label.bomb)
         teacher.feedback(label, frames=1)
 
     def test_an_ignored_bomb_remains_the_label_on_the_next_frame(self) -> None:
@@ -60,7 +71,7 @@ class EvasiveTeacherTests(unittest.TestCase):
 
     def test_a_learner_bomb_starts_cooldown_even_when_not_recommended(self) -> None:
         teacher = EvasiveTeacher(EvasivePolicy(bomb_cooldown_frames=5))
-        clear = observe(make_snapshot(player=PLAYER))
+        clear = observe(make_snapshot(player=PLAYER, power=20))
 
         label = teacher.annotate(clear)
         teacher.feedback(ModelAction(movement=label.movement, bomb=True), frames=1)
@@ -68,6 +79,18 @@ class EvasiveTeacherTests(unittest.TestCase):
 
         self.assertFalse(label.bomb)
         self.assertFalse(dangerous.bomb)
+
+    def test_an_unavailable_learner_bomb_does_not_start_cooldown(self) -> None:
+        teacher = EvasiveTeacher(EvasivePolicy(bomb_cooldown_frames=5))
+        unavailable = teacher.annotate(self.dangerous_observation(power=19))
+        teacher.feedback(
+            ModelAction(movement=unavailable.movement, bomb=True), frames=1
+        )
+
+        available = teacher.annotate(self.dangerous_observation(power=20))
+
+        self.assertFalse(unavailable.bomb)
+        self.assertTrue(available.bomb)
 
     def test_annotation_and_feedback_must_be_paired(self) -> None:
         teacher = EvasiveTeacher()

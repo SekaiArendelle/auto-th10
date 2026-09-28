@@ -80,19 +80,43 @@ class EvasivePolicyTests(unittest.TestCase):
 
     def test_bombs_when_a_bullet_is_already_on_the_player(self) -> None:
         # Nothing can be reached: the bullet is hit on the very first frame.
-        action = self.decide(enemy_bullets=(make_bullet(*PLAYER),))
+        action = self.decide(power=20, enemy_bullets=(make_bullet(*PLAYER),))
 
         self.assertIn(Action.BOMB, action)
+
+    def test_does_not_bomb_below_the_power_cost(self) -> None:
+        bullets = (make_bullet(*PLAYER),)
+
+        for power in (0, 19):
+            with self.subTest(power=power):
+                policy = EvasivePolicy()
+                action = policy.decide(
+                    observe(
+                        make_snapshot(
+                            player=PLAYER,
+                            power=power,
+                            enemy_bullets=bullets,
+                        )
+                    )
+                )
+
+                self.assertNotIn(Action.BOMB, action)
 
     def test_does_not_spend_a_second_bomb_straight_away(self) -> None:
         bullets = (make_bullet(*PLAYER),)
 
-        self.assertIn(Action.BOMB, self.decide(enemy_bullets=bullets))
-        self.assertNotIn(Action.BOMB, self.decide(enemy_bullets=bullets))
+        self.assertIn(Action.BOMB, self.decide(power=20, enemy_bullets=bullets))
+        self.assertNotIn(Action.BOMB, self.decide(power=20, enemy_bullets=bullets))
 
     def test_the_bomb_cooldown_lasts_the_configured_frames(self) -> None:
         policy = EvasivePolicy(bomb_cooldown_frames=5)
-        observation = observe(make_snapshot(player=PLAYER, enemy_bullets=(make_bullet(*PLAYER),)))
+        observation = observe(
+            make_snapshot(
+                player=PLAYER,
+                power=20,
+                enemy_bullets=(make_bullet(*PLAYER),),
+            )
+        )
 
         self.assertIn(Action.BOMB, policy.decide(observation))
         for _ in range(5):
@@ -102,9 +126,15 @@ class EvasivePolicyTests(unittest.TestCase):
     def test_a_new_run_clears_the_bomb_cooldown(self) -> None:
         bullets = (make_bullet(*PLAYER),)
 
-        self.assertIn(Action.BOMB, self.decide(enemy_bullets=bullets, lives=0))
+        self.assertIn(
+            Action.BOMB,
+            self.decide(power=20, enemy_bullets=bullets, lives=0),
+        )
         # The next run hands out fresh bombs, so the old cooldown must not hold.
-        self.assertIn(Action.BOMB, self.decide(enemy_bullets=bullets, lives=2))
+        self.assertIn(
+            Action.BOMB,
+            self.decide(power=20, enemy_bullets=bullets, lives=2),
+        )
 
     def test_does_not_bomb_a_bullet_it_has_room_to_avoid(self) -> None:
         # The old rule bombed anything inside 24 px; here there is room to move.
@@ -169,7 +199,7 @@ class EvasivePolicyTests(unittest.TestCase):
         self.assertTrue(action & (Action.LEFT | Action.RIGHT | Action.UP | Action.DOWN))
 
     def test_lasers_are_treated_as_hazards(self) -> None:
-        action = self.decide(enemy_lasers=(make_laser(*PLAYER),))
+        action = self.decide(power=20, enemy_lasers=(make_laser(*PLAYER),))
 
         self.assertIn(Action.BOMB, action)
 

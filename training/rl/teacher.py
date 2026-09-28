@@ -7,9 +7,9 @@ must advance from what the learner actually did, not from advice it ignored.
 
 from typing import Protocol
 
-from auto_th10 import Observation
+from auto_th10 import Action, Observation
 
-from ..policy import EvasivePolicy
+from ..policy import BOMB_POWER_COST, EvasivePolicy
 from .actions import ModelAction, decode_action, encode_action
 
 
@@ -42,11 +42,13 @@ class EvasiveTeacher:
     def __init__(self, policy: EvasivePolicy | None = None) -> None:
         self.policy = EvasivePolicy() if policy is None else policy
         self._waiting_for_feedback = False
+        self._bomb_available = False
 
     def annotate(self, observation: Observation) -> ModelAction:
         if self._waiting_for_feedback:
             raise RuntimeError("feedback() must complete the previous annotation")
         action = encode_action(self.policy.recommend(observation))
+        self._bomb_available = observation.snapshot.power >= BOMB_POWER_COST
         self._waiting_for_feedback = True
         return action
 
@@ -54,6 +56,8 @@ class EvasiveTeacher:
         if not self._waiting_for_feedback:
             raise RuntimeError("annotate() must be called before feedback()")
         native = decode_action(action)
+        if native & Action.BOMB and not self._bomb_available:
+            native &= ~Action.BOMB
         self.policy.commit(native, frames=frames)
         self._waiting_for_feedback = False
 
@@ -65,3 +69,4 @@ class EvasiveTeacher:
     def reset(self) -> None:
         self.policy.reset()
         self._waiting_for_feedback = False
+        self._bomb_available = False

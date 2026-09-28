@@ -84,6 +84,7 @@ class MemoryGymEnvTests(unittest.TestCase):
     def test_dagger_annotation_tracks_the_gym_frames_actually_applied(self) -> None:
         dangerous = make_snapshot(
             player=(0.0, 400.0),
+            power=20,
             enemy_bullets=(make_bullet(0.0, 400.0),),
         )
         env = self.make_env(FakeSession(snapshots=(dangerous,)), action_repeat=4)
