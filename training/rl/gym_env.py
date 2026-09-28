@@ -12,6 +12,7 @@ from gymnasium import spaces
 
 from auto_th10 import Action, TRAIN_PRESET, Observation, Th10Env
 
+from ..policy import BOMB_POWER_COST
 from ..shooting import shoot_action
 from .actions import ActionSpec, ModelAction, decode_action
 from .features import FeatureSpec, MemoryFeatureEncoder
@@ -82,6 +83,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
             raise ValueError(f"action {action!r} is outside {self.action_space}")
 
         model_action = ModelAction(movement=int(action[0]), bomb=int(action[1]))
+        bomb_available = self._observation.snapshot.power >= BOMB_POWER_COST
         shooting = shoot_action(self._observation.snapshot, self._decisions + 1)
         native_action = decode_action(model_action, shoot=bool(shooting))
         total = RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0.0)
@@ -110,7 +112,10 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 break
 
         self._decisions += 1
-        self._advance_bomb_history(bomb=bool(model_action.bomb), frames=delta_frames)
+        self._advance_bomb_history(
+            bomb=bool(model_action.bomb) and bomb_available,
+            frames=delta_frames,
+        )
         truncated = (
             not terminated
             and self.max_steps is not None
@@ -238,7 +243,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
 
     @property
     def frames_since_bomb(self) -> int | None:
-        """Measured game frames since the learner's latest bomb, if any."""
+        """Frames since the latest bomb requested with enough power, if any."""
         return self._frames_since_bomb
 
     def _encode(self, observation: Observation) -> np.ndarray:

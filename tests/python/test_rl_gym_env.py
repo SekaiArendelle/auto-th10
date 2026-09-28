@@ -137,7 +137,14 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertFalse(session.inputs[3] & Action.BOMB)
 
     def test_bomb_history_uses_actual_elapsed_frames(self) -> None:
-        session = FakeSession(frame_step=2)
+        session = FakeSession(
+            snapshots=(
+                make_snapshot(power=20),
+                make_snapshot(power=0),
+                make_snapshot(power=0),
+            ),
+            frame_step=2,
+        )
         env = self.make_env(session, action_repeat=2)
         initial, _ = env.reset()
 
@@ -153,6 +160,41 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertEqual(bomb_info["frames_since_bomb"], 3)
         self.assertEqual(later_info["frames_since_bomb"], 7)
         self.assertLess(after_bomb[6], later[6])
+
+    def test_unavailable_bomb_does_not_start_bomb_history(self) -> None:
+        session = FakeSession(
+            snapshots=(make_snapshot(power=19), make_snapshot(power=20))
+        )
+        env = self.make_env(session)
+        env.reset()
+
+        observation, _, _, _, info = env.step(
+            np.asarray([0, 1], dtype=np.int64)
+        )
+
+        self.assertIsNone(info["frames_since_bomb"])
+        self.assertEqual(observation[6], 1.0)
+
+    def test_unavailable_bomb_ages_existing_bomb_history(self) -> None:
+        session = FakeSession(
+            snapshots=(
+                make_snapshot(power=20),
+                make_snapshot(power=19),
+                make_snapshot(power=19),
+            ),
+            frame_step=2,
+        )
+        env = self.make_env(session)
+        env.reset()
+
+        _, _, _, _, available = env.step(np.asarray([0, 1], dtype=np.int64))
+        observation, _, _, _, unavailable = env.step(
+            np.asarray([0, 1], dtype=np.int64)
+        )
+
+        self.assertEqual(available["frames_since_bomb"], 1)
+        self.assertEqual(unavailable["frames_since_bomb"], 3)
+        self.assertGreater(observation[6], -1.0)
 
     def test_action_repeat_accumulates_frames_but_penalizes_a_bomb_once(self) -> None:
         session = FakeSession(
