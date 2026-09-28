@@ -194,20 +194,21 @@ Training and evaluation are manual operations against a running game, not automa
 a live stage by hand before running either command. Use a short smoke run before committing to a long training session:
 
 ```powershell
-pixi run python -m training.train --iterations 2 --horizon 256 --updates 4 --batch-size 128 --checkpoint runs/smoke.pt
+pixi run python -m training.train --dagger-iterations 2 --ppo-iterations 2 --horizon 256 --updates 4 --batch-size 128 --ppo-epochs 2 --ppo-batch-size 128 --checkpoint runs/smoke.pt
 pixi run python -m training.evaluate_model --checkpoint runs/smoke.pt --max-steps 2000
 ```
 
-The ordinary longer-running training command writes `runs/dagger.pt` after every iteration:
+The ordinary longer-running training command runs 100 DAgger iterations, then PPO until interrupted, and writes
+`runs/policy.pt` after every iteration:
 
 ```powershell
-pixi run python -m training.train --iterations 100
-pixi run python -m training.evaluate_model --checkpoint runs/dagger.pt
+pixi run python -m training.train
+pixi run python -m training.evaluate_model --checkpoint runs/policy.pt
 ```
 
-DAgger pauses the game while it updates the model and writes the checkpoint, then verifies the resume boundary before
-collecting more frames. An exception during an update deliberately leaves the game paused; resume it manually with
-`Z` after dealing with the failure. Checkpoint loading supports evaluation, but training does not yet restore the
+DAgger pauses the game while it updates and writes the checkpoint. PPO updates while paused, verifies the resume
+boundary, then publishes the one finalized checkpoint for that rollout. An exception during an update deliberately
+leaves the game paused; resume it manually with `Z` after dealing with the failure. Checkpoint loading supports evaluation, but training does not yet restore the
 aggregate DAgger buffer and RNG state, so rerunning `training.train` starts a new model and may overwrite a checkpoint
 with the same path. `evaluate_model --max-steps` is a single-episode diagnostic and cannot be combined with
 `--episodes` greater than one.

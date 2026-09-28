@@ -12,11 +12,12 @@ produces `(observation, action, reward)` rows without a model in the loop, so it
 can generate the first dataset and later act as the baseline a model has to beat.
 
 The learned layer starts with online DAgger: the model visits states, the evasive
-policy labels them, and supervised updates teach the two action heads. The same
-network already has a value head so PPO can reuse it after imitation has produced
-a policy capable of surviving long enough to collect useful rollouts. Nothing
-below depends on that training choice: scripted baselines and learned policies use
-the same observation, action and episode boundaries.
+policy labels them, and supervised updates teach the two action heads. Training
+then switches to PPO: pure learner rollouts optimize the shaped game reward and
+train the value head after imitation has produced a policy capable of surviving
+long enough to collect useful experience. Nothing below depends on that training
+choice: scripted baselines and learned policies use the same observation, action
+and episode boundaries.
 
 ## Layers
 
@@ -214,8 +215,8 @@ Both entry points expect a game that is already in a stage:
 ```powershell
 pixi run python -m training.evaluate --episodes 3 --policy evasive
 pixi run python -m training.collect --out runs/first.jsonl
-pixi run python -m training.train --iterations 100
-pixi run python -m training.evaluate_model --checkpoint runs/dagger.pt
+pixi run python -m training.train
+pixi run python -m training.evaluate_model --checkpoint runs/policy.pt
 ```
 
 Training writes a separate timestamped TensorBoard run below
@@ -226,14 +227,17 @@ Training writes a separate timestamped TensorBoard run below
 pixi run tensorboard --logdir runs/tensorboard
 ```
 
-The dashboard separates imitation losses, DAgger state, rollout behavior and
-completed-episode results. Use `--tensorboard-dir PATH` to put the timestamped
-run under a different root, then pass that same root to
+The dashboard separates imitation losses, DAgger state, PPO losses, rollout
+behavior and completed-episode results. Use `--tensorboard-dir PATH` to put the
+timestamped run under a different root, then pass that same root to
 `pixi run tensorboard --logdir PATH`. The console summary remains available for
 quick checks.
 
-`--iterations` defaults to `inf`: the run then ends only when the game refuses
-to play (`NotInStage`) or at Ctrl+C, which names the iteration it stopped in.
+`--dagger-iterations` defaults to 100. After those finite supervised iterations,
+`--ppo-iterations` defaults to `inf`: reinforcement learning then ends only when
+the game refuses to play (`NotInStage`) or at Ctrl+C. Pass
+`--ppo-iterations 0` for a DAgger-only run. An interrupt names both the phase and
+iteration where it stopped.
 `NotInStage` and other operational failures keep their traceback so the exact
 pause, resume, reset or restart call remains visible. Held input is released on
 every exit, and an interrupt during an update leaves the game paused - the next
@@ -262,8 +266,8 @@ start finds that menu and leaves it from `Return to Game` itself.
   and bomb heads, then advances cooldown state from the learner action reported
   through `feedback()` rather than from advice the learner may have ignored.
 - `training/rl/model.py` - one shared MLP trunk with independent 17-way movement,
-  binary bomb and scalar value heads. Imitation trains the action heads; PPO can
-  later train all three without changing the checkpoint shape.
+  binary bomb and scalar value heads. Imitation trains the action heads; PPO
+  subsequently trains all three without changing the checkpoint shape.
 - `training/rl/checkpoint.py` - atomic checkpoint writes and strict loading. A
   loader reconstructs all three specs from versioned metadata, verifies that the
   feature size and weight shapes agree, and returns the optimizer state without
@@ -275,6 +279,10 @@ start finds that menu and leaves it from `Return to Game` itself.
   fixed-horizon pause/update/resume transaction. A failed update deliberately
   leaves the game paused; a collection failure stops the environment and releases
   held input.
+- `training/rl/ppo.py` - pure learner rollout collection, frame-discounted GAE,
+  advantage normalization and shuffled PPO epochs. The update uses clipped
+  policy and value objectives, entropy regularization, gradient clipping and an
+  optional target-KL stop.
 - `training/rl/rewards.py` - the first shaped reward: small survival progress,
   clipped positive score progress, and explicit penalties for a lost life, a
   bomb and game over. Every term remains visible in the step metadata so a
@@ -287,11 +295,15 @@ start finds that menu and leaves it from `Return to Game` itself.
   action, feature and reward protocols included - needs them.
 - `training/shooting.py` - the fixed combat/dialogue shooting rule shared by the
   scripted baseline and the Gymnasium adapter.
-- `training/train.py` - the online DAgger entry point. It decays the probability
-  of executing teacher actions and atomically writes model, optimizer and schema
-  metadata to `runs/dagger.pt` after every iteration. It also writes losses,
-  rollout behavior, completed-episode results and run hyperparameters for
-  TensorBoard.
+- `training/train.py` - the two-phase DAgger/PPO entry point. It first decays the
+  probability of executing teacher actions, then removes the teacher from the
+  action path and optimizes on-policy reward. It atomically writes model,
+  optimizer and schema metadata to `runs/policy.pt` after every iteration, and
+  writes losses, rollout behavior, completed-episode results and run
+  hyperparameters for TensorBoard. PPO serializes a hidden staging checkpoint
+  while the game is paused and promotes it with one atomic rename only after the
+  resume boundary has been verified; a late terminal replaces the staged file
+  with its corrected update before that promotion.
 - `training/evaluate_model.py` - deterministic checkpoint evaluation. The model
   alone controls movement and bomb; the evasive teacher only labels those same
   states so the report can include movement agreement and bomb precision/recall
@@ -321,9 +333,17 @@ control. `max_steps` counts model decisions rather than raw game frames; the
 `frames` and `delta_frames` info fields retain the actual stage-clock progress.
 The reward constants are starting scales, not tuned claims. Evaluation should
 continue reporting raw score and survived frames independently of shaped reward.
-DAgger does not accept `max_steps`: its own fixed `horizon` is the resumable
-rollout boundary, while a Gym truncation releases input but cannot freeze the
-still-running game for an update.
+DAgger and PPO do not accept `max_steps`: their own fixed `horizon` is the
+resumable rollout boundary, while a Gym truncation releases input but cannot
+freeze the still-running game for an update. PPO raises on an unexpected Gym
+truncation instead of treating it as a terminal state. It bootstraps a live
+rollout from the value at the verified pause boundary, never bootstraps a true
+game over, and raises the per-frame discount to each transition's measured
+`delta_frames`. A live resume happens after that rollout has already been
+optimized and has no policy action to credit; its reward and frames remain in
+episode and rollout metrics but are not folded backward into the preceding PPO
+advantage. A terminal resume is different: it corrects that rollout's return,
+rolls back the provisional update and trains it again without bootstrapping.
 
 The teacher is queried alongside the learner rather than substituted for it:
 
@@ -347,8 +367,8 @@ to spend one. `reset()` clears the annotation pairing and state for a genuinely
 independent trajectory; a PPO rollout boundary in the middle of the same game
 must not call it.
 
-Open: tuning DAgger against a real stage; restoring the aggregate buffer and RNG
-state for full training resume; then collecting advantages and adding PPO updates
-behind the existing value head. Nothing here has been tuned with the game in front
-of it, and `BULLET_LEAD` and the laser box are still guesses. A name of its own for
-a record worth keeping also remains outside the scripted lifecycle.
+Open: tuning DAgger and PPO against a real stage, and restoring the aggregate
+buffer and RNG state for full training resume. Nothing here has been tuned with
+the game in front of it, and `BULLET_LEAD` and the laser box are still guesses. A
+name of its own for a record worth keeping also remains outside the scripted
+lifecycle.

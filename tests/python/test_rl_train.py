@@ -33,10 +33,11 @@ class TrainEntryPointTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_defaults_run_forever_with_a_fixed_horizon_dagger_rollout(self) -> None:
+    def test_defaults_run_finite_dagger_then_unbounded_ppo(self) -> None:
         args = train.build_parser().parse_args([])
 
-        self.assertIsNone(args.iterations)
+        self.assertEqual(args.dagger_iterations, 100)
+        self.assertIsNone(args.ppo_iterations)
         self.assertEqual(args.horizon, 1024)
         self.assertEqual(args.beta, 1.0)
         self.assertEqual(args.beta_min, 0.05)
@@ -50,9 +51,9 @@ class TrainEntryPointTests(unittest.TestCase):
     def test_inf_spells_an_unbounded_run(self) -> None:
         for spelling in ("inf", "INF"):
             with self.subTest(spelling=spelling):
-                args = train.build_parser().parse_args(["--iterations", spelling])
+                args = train.build_parser().parse_args(["--ppo-iterations", spelling])
 
-                self.assertIsNone(args.iterations)
+                self.assertIsNone(args.ppo_iterations)
 
     def test_iterations_rejects_a_count_that_is_not_positive(self) -> None:
         for value in ("0", "-1", "abc"):
@@ -61,7 +62,7 @@ class TrainEntryPointTests(unittest.TestCase):
                 contextlib.redirect_stderr(io.StringIO()),
                 self.assertRaises(SystemExit) as refused,
             ):
-                train.build_parser().parse_args(["--iterations", value])
+                train.build_parser().parse_args(["--dagger-iterations", value])
 
             self.assertEqual(refused.exception.code, 2)
 
@@ -76,6 +77,8 @@ class TrainEntryPointTests(unittest.TestCase):
                 boundary_reward=0.0,
                 boundary_frames=0,
                 episode_frames=0,
+                resume_reward=0.0,
+                resume_frames=0,
             ),
             next_features="features",
         )
@@ -85,13 +88,83 @@ class TrainEntryPointTests(unittest.TestCase):
             mock.patch.object(train, "run_dagger_iteration", return_value=iteration) as run,
             contextlib.redirect_stdout(stdout),
         ):
-            code = train.main(["--iterations", "2"])
+            code = train.main(
+                ["--dagger-iterations", "2", "--ppo-iterations", "0"]
+            )
 
         self.assertEqual(code, 0)
         self.assertEqual(run.call_count, 2)
         self.assertTrue(env.closed)
         self.assertIn("Input backend: background", stdout.getvalue())
         self.writer.close.assert_called_once_with()
+
+    def test_training_switches_from_finite_dagger_to_ppo(self) -> None:
+        env = _FakeEnv()
+        env.raw_observation = SimpleNamespace(snapshot=SimpleNamespace(score=10))
+        dagger = SimpleNamespace(
+            rollout=SimpleNamespace(
+                samples=(),
+                terminated=False,
+                truncated=False,
+                boundary_reward=0.0,
+                boundary_frames=0,
+                episode_frames=0,
+            ),
+            next_features="after-dagger",
+        )
+        ppo = SimpleNamespace(
+            rollout=SimpleNamespace(
+                samples=(),
+                terminated=False,
+                boundary_reward=0.0,
+                boundary_frames=0,
+                episode_frames=0,
+                resume_reward=0.0,
+                resume_frames=0,
+            ),
+            next_features="after-ppo",
+        )
+        ppo_updates = (
+            SimpleNamespace(
+                total=1.0,
+                policy=0.1,
+                value=2.0,
+                entropy=0.5,
+                approximate_kl=0.01,
+                clip_fraction=0.0,
+            ),
+        )
+
+        def run_ppo_iteration(*args: object, **kwargs: object) -> object:
+            del args
+            kwargs["prepare_updates"](ppo.rollout, ppo_updates)
+            kwargs["after_updates"](ppo.rollout, ppo_updates)
+            return ppo
+
+        with (
+            mock.patch.object(train, "MemoryGymEnv", return_value=env),
+            mock.patch.object(
+                train, "run_dagger_iteration", return_value=dagger
+            ) as run_dagger,
+            mock.patch.object(
+                train, "run_ppo_iteration", side_effect=run_ppo_iteration
+            ) as run_ppo,
+            mock.patch.object(train, "save_checkpoint") as save,
+            mock.patch.object(train.os, "replace") as publish,
+        ):
+            code = train.main(
+                ["--dagger-iterations", "1", "--ppo-iterations", "1"]
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(run_dagger.call_count, 1)
+        self.assertEqual(run_ppo.call_count, 1)
+        self.assertEqual(run_ppo.call_args.args[3], "after-dagger")
+        pending = train.DEFAULT_CHECKPOINT.with_name(
+            f".{train.DEFAULT_CHECKPOINT.name}.pending"
+        )
+        self.assertEqual(save.call_args.args[0], pending)
+        publish.assert_called_once_with(pending, train.DEFAULT_CHECKPOINT)
 
     def test_a_late_terminal_boundary_is_logged_after_resume(self) -> None:
         env = _FakeEnv()
@@ -133,7 +206,9 @@ class TrainEntryPointTests(unittest.TestCase):
             mock.patch.object(train, "run_dagger_iteration", side_effect=run_iteration),
             mock.patch.object(train, "save_checkpoint"),
         ):
-            code = train.main(["--iterations", "1"])
+            code = train.main(
+                ["--dagger-iterations", "1", "--ppo-iterations", "0"]
+            )
 
         self.assertEqual(code, 0)
         self.writer.add_scalar.assert_has_calls(
@@ -196,7 +271,7 @@ class TrainEntryPointTests(unittest.TestCase):
             buffer_size=50,
             updates=updates,
         )
-        train._log_rollout_metrics(self.writer, rollout, iteration=7)
+        train._log_dagger_rollout_metrics(self.writer, rollout, iteration=7)
 
         self.writer.add_scalar.assert_has_calls(
             (
@@ -260,7 +335,9 @@ class TrainEntryPointTests(unittest.TestCase):
             code = train.main([])
 
         self.assertEqual(code, 130)
-        self.assertIn("training interrupted at iteration 1", stderr.getvalue())
+        self.assertIn(
+            "training interrupted during dagger at iteration 1", stderr.getvalue()
+        )
         self.assertTrue(env.closed)
 
     def test_a_runtime_refusal_keeps_its_traceback_and_cleans_up(self) -> None:
@@ -290,7 +367,9 @@ class TrainEntryPointTests(unittest.TestCase):
             code = train.main([])
 
         self.assertEqual(code, 130)
-        self.assertIn("training interrupted at iteration 0", stderr.getvalue())
+        self.assertIn(
+            "training interrupted during dagger at iteration 0", stderr.getvalue()
+        )
 
     def test_an_interrupt_before_the_first_iteration_closes_the_environment(self) -> None:
         env = mock.Mock()
@@ -304,7 +383,9 @@ class TrainEntryPointTests(unittest.TestCase):
             code = train.main([])
 
         self.assertEqual(code, 130)
-        self.assertIn("training interrupted at iteration 0", stderr.getvalue())
+        self.assertIn(
+            "training interrupted during dagger at iteration 0", stderr.getvalue()
+        )
         env.close.assert_called_once_with()
 
 

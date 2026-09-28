@@ -154,7 +154,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         self._advance_bomb_history(bomb=False, frames=delta_frames)
         terminated = observation.snapshot.game_over
         total = RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0.0)
-        if terminated:
+        if delta_frames > 0 or observation.snapshot != previous.snapshot:
             total = memory_reward(
                 previous.snapshot,
                 observation.snapshot,
@@ -162,6 +162,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 frames=max(1, delta_frames),
                 spec=self.reward_spec,
             )
+        if terminated:
             self._episode_done = True
         info = self._info({}, delta_frames=delta_frames)
         info.update(
@@ -190,7 +191,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
         self._advance_bomb_history(bomb=False, frames=delta_frames)
         terminated = observation.snapshot.game_over
         total = RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0.0)
-        if terminated:
+        if delta_frames > 0 or observation.snapshot != previous.snapshot:
             total = memory_reward(
                 previous.snapshot,
                 observation.snapshot,
@@ -198,6 +199,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 frames=max(1, delta_frames),
                 spec=self.reward_spec,
             )
+        if terminated:
             self._episode_done = True
         info = self._info({}, delta_frames=delta_frames)
         info.update(

@@ -28,6 +28,17 @@ from .model import (
     ActorCriticOutput,
     ModelSpec,
 )
+from .ppo import (
+    PpoBatch,
+    PpoIteration,
+    PpoMetrics,
+    PpoRollout,
+    PpoSample,
+    collect_ppo_rollout,
+    prepare_ppo_batch,
+    run_ppo_iteration,
+    update_ppo,
+)
 from .rewards import RewardBreakdown, RewardSpec, memory_reward
 from .teacher import EvasiveTeacher, Teacher
 
@@ -51,6 +62,11 @@ __all__ = [
     "MemoryGymEnv",
     "ModelAction",
     "ModelSpec",
+    "PpoBatch",
+    "PpoIteration",
+    "PpoMetrics",
+    "PpoRollout",
+    "PpoSample",
     "ImitationLoss",
     "ImitationMetrics",
     "ImitationBatch",
@@ -61,11 +77,15 @@ __all__ = [
     "Teacher",
     "decode_action",
     "collect_dagger_rollout",
+    "collect_ppo_rollout",
     "encode_action",
     "imitation_loss",
     "load_checkpoint",
     "memory_reward",
+    "prepare_ppo_batch",
     "run_dagger_iteration",
+    "run_ppo_iteration",
     "save_checkpoint",
     "update_imitation",
+    "update_ppo",
 ]

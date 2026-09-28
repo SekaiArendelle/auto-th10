@@ -1,4 +1,4 @@
-"""Run online DAgger updates against a game already in a stage."""
+"""Pretrain with online DAgger, then fine-tune with on-policy PPO."""
 
 import argparse
 from collections.abc import Iterable
@@ -6,6 +6,7 @@ from datetime import datetime
 import itertools
 import json
 import math
+import os
 import pathlib
 import random
 import statistics
@@ -24,11 +25,14 @@ from .rl import (
     ImitationMetrics,
     MemoryGymEnv,
     ModelSpec,
+    PpoMetrics,
+    PpoRollout,
     run_dagger_iteration,
+    run_ppo_iteration,
     save_checkpoint,
 )
 
-DEFAULT_CHECKPOINT = pathlib.Path("runs/dagger.pt")
+DEFAULT_CHECKPOINT = pathlib.Path("runs/policy.pt")
 DEFAULT_TENSORBOARD_ROOT = pathlib.Path("runs/tensorboard")
 INPUT_BACKEND = "background"
 
@@ -37,15 +41,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m training.train",
         description=(
-            "Train an in-memory policy from EvasivePolicy labels. Start TH10 and "
-            "enter a stage before running this command."
+            "Pretrain an in-memory policy from EvasivePolicy labels, then "
+            "fine-tune it with PPO. Start TH10 and enter a stage before running "
+            "this command."
         ),
     )
+    parser.add_argument("--dagger-iterations", type=_positive_int, default=100)
     parser.add_argument(
-        "--iterations",
-        type=_iteration_limit,
+        "--ppo-iterations",
+        type=_nonnegative_iteration_limit,
         default=None,
-        help="DAgger iterations to run; inf (the default) runs until interrupted",
+        help="PPO iterations to run; inf (the default) runs until interrupted",
     )
     parser.add_argument("--horizon", type=_positive_int, default=1024)
     parser.add_argument("--updates", type=_nonnegative_int, default=16)
@@ -72,6 +78,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--bomb-fraction", type=_probability, default=0.25)
     parser.add_argument("--bomb-positive-weight", type=_positive_float, default=8.0)
+    parser.add_argument("--ppo-epochs", type=_positive_int, default=10)
+    parser.add_argument("--ppo-batch-size", type=_positive_int, default=256)
+    parser.add_argument("--gamma", type=_probability, default=0.999)
+    parser.add_argument("--gae-lambda", type=_probability, default=0.95)
+    parser.add_argument("--clip-ratio", type=_positive_float, default=0.2)
+    parser.add_argument("--value-clip", type=_positive_float, default=0.2)
+    parser.add_argument("--value-coefficient", type=_nonnegative_float, default=0.5)
+    parser.add_argument("--entropy-coefficient", type=_nonnegative_float, default=0.01)
+    parser.add_argument("--max-grad-norm", type=_positive_float, default=0.5)
+    parser.add_argument("--target-kl", type=_positive_float, default=None)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--checkpoint",
@@ -108,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     teacher = EvasiveTeacher()
     beta = args.beta
     iteration = 0
+    phase = "dagger"
     episode = 0
     episode_reward = 0.0
     episode_frames = 0
@@ -125,7 +142,8 @@ def main(argv: list[str] | None = None) -> int:
         env = MemoryGymEnv(feature_spec=feature_spec)
         features, _ = env.reset(seed=args.seed)
         teacher.reset()
-        for iteration in _iteration_range(args.iterations):
+        for _ in range(args.dagger_iterations):
+            iteration += 1
             def finish_updates(
                 rollout: DaggerRollout,
                 updates: tuple[ImitationMetrics, ...],
@@ -168,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
                 after_updates=finish_updates,
             )
             rollout = result.rollout
-            _log_rollout_metrics(writer, rollout, iteration=iteration)
+            _log_dagger_rollout_metrics(writer, rollout, iteration=iteration)
             episode_reward, episode_frames, episode_bombs = _accumulate_episode(
                 rollout,
                 reward=episode_reward,
@@ -194,8 +212,90 @@ def main(argv: list[str] | None = None) -> int:
                 features, _ = env.reset()
             else:
                 features = result.next_features
+        phase = "ppo"
+        pending_checkpoint = args.checkpoint.with_name(
+            f".{args.checkpoint.name}.pending"
+        )
+        for _ in _iteration_range(args.ppo_iterations):
+            iteration += 1
+
+            def prepare_ppo_updates(
+                rollout: PpoRollout,
+                updates: tuple[PpoMetrics, ...],
+            ) -> None:
+                del rollout, updates
+                # Flush the preceding iteration while the game is paused, then
+                # perform all expensive serialization into a staging path. A
+                # verified resume publishes it with one atomic rename.
+                writer.flush()
+                save_checkpoint(
+                    pending_checkpoint,
+                    iteration=iteration,
+                    beta=0.0,
+                    feature_spec=feature_spec,
+                    action_spec=action_spec,
+                    model_spec=model_spec,
+                    model=model,
+                    optimizer=optimizer,
+                )
+
+            def finish_ppo_updates(
+                rollout: PpoRollout,
+                updates: tuple[PpoMetrics, ...],
+            ) -> None:
+                del rollout
+                os.replace(pending_checkpoint, args.checkpoint)
+                _report_ppo_iteration(iteration, updates)
+                _log_ppo_update_metrics(writer, iteration=iteration, updates=updates)
+
+            result = run_ppo_iteration(
+                env,
+                model,
+                optimizer,
+                features,
+                horizon=args.horizon,
+                epochs=args.ppo_epochs,
+                batch_size=args.ppo_batch_size,
+                gamma=args.gamma,
+                gae_lambda=args.gae_lambda,
+                clip_ratio=args.clip_ratio,
+                value_clip=args.value_clip,
+                value_coefficient=args.value_coefficient,
+                entropy_coefficient=args.entropy_coefficient,
+                max_grad_norm=args.max_grad_norm,
+                target_kl=args.target_kl,
+                prepare_updates=prepare_ppo_updates,
+                after_updates=finish_ppo_updates,
+            )
+            rollout = result.rollout
+            _log_ppo_rollout_metrics(writer, rollout, iteration=iteration)
+            episode_reward, episode_frames, episode_bombs = _accumulate_ppo_episode(
+                rollout,
+                reward=episode_reward,
+                frames=episode_frames,
+                bombs=episode_bombs,
+            )
+            if rollout.terminated:
+                _log_episode_metrics(
+                    writer,
+                    episode=episode,
+                    reward=episode_reward,
+                    frames=episode_frames,
+                    score=env.raw_observation.snapshot.score,
+                    bombs=episode_bombs,
+                )
+                episode += 1
+                episode_reward = 0.0
+                episode_frames = 0
+                episode_bombs = 0
+                features, _ = env.reset()
+            else:
+                features = result.next_features
     except KeyboardInterrupt:
-        print(f"training interrupted at iteration {iteration}", file=sys.stderr)
+        print(
+            f"training interrupted during {phase} at iteration {iteration}",
+            file=sys.stderr,
+        )
         return 130
     finally:
         try:
@@ -245,7 +345,7 @@ def _log_update_metrics(
     )
 
 
-def _log_rollout_metrics(
+def _log_dagger_rollout_metrics(
     writer: SummaryWriter, rollout: DaggerRollout, *, iteration: int
 ) -> None:
     samples = rollout.samples
@@ -283,6 +383,57 @@ def _log_rollout_metrics(
     )
 
 
+def _report_ppo_iteration(
+    iteration: int, updates: tuple[PpoMetrics, ...]
+) -> None:
+    policy = statistics.fmean(update.policy for update in updates)
+    value = statistics.fmean(update.value for update in updates)
+    print(
+        f"iteration {iteration}: PPO policy loss {policy:.4f}, "
+        f"value loss {value:.4f}"
+    )
+
+
+def _log_ppo_update_metrics(
+    writer: SummaryWriter,
+    *,
+    iteration: int,
+    updates: tuple[PpoMetrics, ...],
+) -> None:
+    if not updates:
+        return
+    for name in (
+        "total",
+        "policy",
+        "value",
+        "entropy",
+        "approximate_kl",
+        "clip_fraction",
+    ):
+        writer.add_scalar(
+            f"ppo/{name}",
+            statistics.fmean(getattr(update, name) for update in updates),
+            iteration,
+        )
+
+
+def _log_ppo_rollout_metrics(
+    writer: SummaryWriter, rollout: PpoRollout, *, iteration: int
+) -> None:
+    writer.add_scalar(
+        "ppo_rollout/reward",
+        sum(sample.reward for sample in rollout.samples) + rollout.resume_reward,
+        iteration,
+    )
+    writer.add_scalar("ppo_rollout/steps", len(rollout.samples), iteration)
+    writer.add_scalar(
+        "ppo_rollout/frames",
+        sum(sample.frames for sample in rollout.samples) + rollout.resume_frames,
+        iteration,
+    )
+    writer.add_scalar("ppo_rollout/terminated", int(rollout.terminated), iteration)
+
+
 def _log_episode_metrics(
     writer: SummaryWriter,
     *,
@@ -311,6 +462,18 @@ def _accumulate_episode(
     )
 
 
+def _accumulate_ppo_episode(
+    rollout: PpoRollout, *, reward: float, frames: int, bombs: int
+) -> tuple[float, int, int]:
+    return (
+        reward
+        + sum(sample.reward for sample in rollout.samples)
+        + rollout.resume_reward,
+        rollout.episode_frames if rollout.samples else frames,
+        bombs + sum(int(sample.action.bomb) for sample in rollout.samples),
+    )
+
+
 def _new_run_directory(root: pathlib.Path) -> pathlib.Path:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     return root / timestamp
@@ -328,8 +491,21 @@ def _write_hyperparameters(writer: SummaryWriter, args: argparse.Namespace) -> N
         "checkpoint": str(args.checkpoint),
         "horizon": args.horizon,
         "input_backend": INPUT_BACKEND,
-        "iterations": "inf" if args.iterations is None else args.iterations,
+        "dagger_iterations": args.dagger_iterations,
         "learning_rate": args.learning_rate,
+        "ppo_iterations": (
+            "inf" if args.ppo_iterations is None else args.ppo_iterations
+        ),
+        "ppo_epochs": args.ppo_epochs,
+        "ppo_batch_size": args.ppo_batch_size,
+        "gamma": args.gamma,
+        "gae_lambda": args.gae_lambda,
+        "clip_ratio": args.clip_ratio,
+        "value_clip": args.value_clip,
+        "value_coefficient": args.value_coefficient,
+        "entropy_coefficient": args.entropy_coefficient,
+        "max_grad_norm": args.max_grad_norm,
+        "target_kl": args.target_kl,
         "seed": args.seed,
         "updates": args.updates,
     }
@@ -352,12 +528,12 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
-def _iteration_limit(value: str) -> int | None:
+def _nonnegative_iteration_limit(value: str) -> int | None:
     if value.lower() == "inf":
         return None
     parsed = int(value)
-    if parsed < 1:
-        raise argparse.ArgumentTypeError("must be positive or 'inf'")
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must not be negative or must be 'inf'")
     return parsed
 
 
@@ -372,6 +548,13 @@ def _positive_float(value: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed) or parsed <= 0.0:
         raise argparse.ArgumentTypeError("must be positive and finite")
+    return parsed
+
+
+def _nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise argparse.ArgumentTypeError("must be non-negative and finite")
     return parsed
 
 

@@ -244,6 +244,26 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertGreater(resume_info["delta_frames"], 0)
         env.step(np.asarray([0, 0], dtype=np.int64))
 
+    def test_live_pause_and_resume_report_boundary_rewards(self) -> None:
+        session = FakeSession(
+            snapshots=(
+                make_snapshot(score=10, lives=2),
+                make_snapshot(score=1010, lives=1),
+                make_snapshot(score=2010, lives=1),
+            )
+        )
+        env = self.make_env(session)
+        env.reset()
+
+        _, pause_info = env.pause()
+        _, resume_info = env.resume()
+
+        self.assertFalse(pause_info["terminated"])
+        self.assertEqual(pause_info["reward/score"], 1.0)
+        self.assertEqual(pause_info["reward/life"], -1.0)
+        self.assertFalse(resume_info["terminated"])
+        self.assertEqual(resume_info["reward/score"], 1.0)
+
     def test_pause_reports_a_run_that_ended_while_the_menu_opened(self) -> None:
         session = FakeSession(
             snapshots=(
