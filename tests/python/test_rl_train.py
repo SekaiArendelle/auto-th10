@@ -56,7 +56,8 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertEqual(args.horizon, 1024)
         self.assertEqual(args.beta, 1.0)
         self.assertEqual(args.beta_min, 0.05)
-        self.assertEqual(args.checkpoint, train.DEFAULT_CHECKPOINT)
+        self.assertEqual(args.checkpoint_dir, train.DEFAULT_CHECKPOINT_DIR)
+        self.assertEqual(args.checkpoint_every, 25)
         self.assertEqual(args.tensorboard_dir, train.DEFAULT_TENSORBOARD_ROOT)
         self.assertFalse(args.resume)
 
@@ -81,6 +82,132 @@ class TrainEntryPointTests(unittest.TestCase):
                 train.build_parser().parse_args(["--dagger-iterations", value])
 
             self.assertEqual(refused.exception.code, 2)
+
+    def test_checkpoint_snapshots_cover_intervals_and_phase_boundaries(self) -> None:
+        args = train.build_parser().parse_args(
+            ["--checkpoint-dir", "runs/example", "--checkpoint-every", "25"]
+        )
+
+        ordinary = train._snapshot_path(
+            args,
+            iteration=24,
+            dagger_completed=24,
+            ppo_completed=0,
+            phase_transition=False,
+            training_complete=False,
+        )
+        periodic = train._snapshot_path(
+            args,
+            iteration=25,
+            dagger_completed=25,
+            ppo_completed=0,
+            phase_transition=False,
+            training_complete=False,
+        )
+        transition = train._snapshot_path(
+            args,
+            iteration=100,
+            dagger_completed=100,
+            ppo_completed=0,
+            phase_transition=True,
+            training_complete=False,
+        )
+
+        self.assertIsNone(ordinary)
+        self.assertEqual(
+            periodic,
+            pathlib.Path("runs/example")
+            / "iteration-00000025-dagger-00000025-ppo-00000000.pt",
+        )
+        self.assertEqual(
+            transition,
+            pathlib.Path("runs/example")
+            / "iteration-00000100-dagger-00000100-ppo-00000000.pt",
+        )
+
+    def test_checkpoint_publish_keeps_latest_and_immutable_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            pending = root / ".latest.pt.pending"
+            latest = root / "latest.pt"
+            snapshot = root / "iteration-00000025-dagger-00000025-ppo-00000000.pt"
+            pending.write_bytes(b"checkpoint")
+
+            train._stage_checkpoint_snapshot(pending, snapshot)
+            train._publish_checkpoint(pending, latest, snapshot=snapshot)
+
+            self.assertEqual(latest.read_bytes(), b"checkpoint")
+            self.assertEqual(snapshot.read_bytes(), b"checkpoint")
+            self.assertFalse(pending.exists())
+            with self.assertRaisesRegex(FileExistsError, "already exists"):
+                train._stage_checkpoint_snapshot(latest, snapshot)
+
+    def test_latest_survives_snapshot_publish_failure_and_recovers_next_time(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            pending = root / ".latest.pt.pending"
+            latest = root / "latest.pt"
+            snapshot = root / "iteration-00000025-dagger-00000025-ppo-00000000.pt"
+            pending.write_bytes(b"checkpoint")
+            train._stage_checkpoint_snapshot(pending, snapshot)
+
+            with (
+                mock.patch.object(train.os, "rename", side_effect=OSError("failed")),
+                self.assertRaisesRegex(OSError, "failed"),
+            ):
+                train._publish_checkpoint(pending, latest, snapshot=snapshot)
+
+            self.assertEqual(latest.read_bytes(), b"checkpoint")
+            self.assertFalse(snapshot.exists())
+            train._recover_staged_snapshot(
+                root,
+                iteration=25,
+                dagger_completed=25,
+                ppo_completed=0,
+            )
+            self.assertEqual(snapshot.read_bytes(), b"checkpoint")
+
+    def test_resume_accepts_a_name_inside_the_directory_or_an_external_path(self) -> None:
+        root = pathlib.Path("runs/example")
+
+        self.assertEqual(
+            train._resume_checkpoint_path(root, pathlib.Path("latest.pt")),
+            root / "latest.pt",
+        )
+        external = pathlib.Path("runs/other/iteration-00000025.pt")
+        self.assertEqual(
+            train._resume_checkpoint_path(root, external), external
+        )
+
+    def test_fresh_training_refuses_to_overwrite_a_checkpoint_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "latest.pt").write_bytes(b"existing")
+
+            with self.assertRaisesRegex(ValueError, "already contains"):
+                train._require_empty_checkpoint_dir(root)
+
+    def test_historical_checkpoint_cannot_resume_into_its_own_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            snapshot = root / "iteration-00000025-dagger-00000025-ppo-00000000.pt"
+            snapshot.write_bytes(b"checkpoint")
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr):
+                code = train.main(
+                    [
+                        "--resume",
+                        str(snapshot),
+                        "--checkpoint-dir",
+                        str(root),
+                    ]
+                )
+
+        self.assertEqual(code, 1)
+        self.assertIn("must resume into a new --checkpoint-dir", stderr.getvalue())
 
     def test_a_finite_run_stops_after_its_iterations(self) -> None:
         env = _FakeEnv()
@@ -166,7 +293,8 @@ class TrainEntryPointTests(unittest.TestCase):
                 train, "run_ppo_iteration", side_effect=run_ppo_iteration
             ) as run_ppo,
             mock.patch.object(train, "save_checkpoint") as save,
-            mock.patch.object(train.os, "replace") as publish,
+            mock.patch.object(train, "_stage_checkpoint_snapshot"),
+            mock.patch.object(train, "_publish_checkpoint") as publish,
         ):
             code = train.main(
                 ["--dagger-iterations", "1", "--ppo-iterations", "1"]
@@ -176,11 +304,16 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertEqual(run_dagger.call_count, 1)
         self.assertEqual(run_ppo.call_count, 1)
         self.assertEqual(run_ppo.call_args.args[3], "after-dagger")
-        pending = train.DEFAULT_CHECKPOINT.with_name(
-            f".{train.DEFAULT_CHECKPOINT.name}.pending"
+        pending = train.DEFAULT_CHECKPOINT_DIR / ".latest.pt.pending"
+        snapshot = train.DEFAULT_CHECKPOINT_DIR / (
+            "iteration-00000002-dagger-00000001-ppo-00000001.pt"
         )
         self.assertEqual(save.call_args.args[0], pending)
-        publish.assert_called_once_with(pending, train.DEFAULT_CHECKPOINT)
+        publish.assert_called_once_with(
+            pending,
+            train.DEFAULT_CHECKPOINT,
+            snapshot=snapshot,
+        )
 
     def test_resume_restores_state_and_runs_only_unfinished_ppo(self) -> None:
         env = _FakeEnv()
@@ -213,7 +346,8 @@ class TrainEntryPointTests(unittest.TestCase):
             return result
 
         with tempfile.TemporaryDirectory() as directory:
-            path = pathlib.Path(directory) / "policy.pt"
+            checkpoint_dir = pathlib.Path(directory) / "policy"
+            path = checkpoint_dir / "latest.pt"
             saved_args = train.build_parser().parse_args([])
             saved_args.dagger_iterations = 2
             saved_args.ppo_iterations = 2
@@ -256,8 +390,8 @@ class TrainEntryPointTests(unittest.TestCase):
                 code = train.main(
                     [
                         "--resume",
-                        "--checkpoint",
-                        str(path),
+                        "--checkpoint-dir",
+                        str(checkpoint_dir),
                     ]
                 )
 
@@ -289,7 +423,8 @@ class TrainEntryPointTests(unittest.TestCase):
     def test_resume_rejects_an_evaluation_only_checkpoint(self) -> None:
         stderr = io.StringIO()
         with tempfile.TemporaryDirectory() as directory:
-            path = pathlib.Path(directory) / "policy.pt"
+            checkpoint_dir = pathlib.Path(directory) / "policy"
+            path = checkpoint_dir / "latest.pt"
             feature_spec = FeatureSpec(max_enemies=1, max_bullets=1)
             action_spec = ActionSpec()
             model_spec = ModelSpec(feature_spec.size, hidden_sizes=(8,))
@@ -307,7 +442,9 @@ class TrainEntryPointTests(unittest.TestCase):
             )
 
             with contextlib.redirect_stderr(stderr):
-                code = train.main(["--resume", "--checkpoint", str(path)])
+                code = train.main(
+                    ["--resume", "--checkpoint-dir", str(checkpoint_dir)]
+                )
 
         self.assertEqual(code, 1)
         self.assertIn("can only be evaluated", stderr.getvalue())
@@ -392,7 +529,8 @@ class TrainEntryPointTests(unittest.TestCase):
             mock.patch.object(train, "MemoryGymEnv", return_value=env),
             mock.patch.object(train, "run_dagger_iteration", side_effect=run_iteration),
             mock.patch.object(train, "save_checkpoint"),
-            mock.patch.object(train.os, "replace"),
+            mock.patch.object(train, "_stage_checkpoint_snapshot"),
+            mock.patch.object(train, "_publish_checkpoint"),
         ):
             code = train.main(
                 ["--dagger-iterations", "1", "--ppo-iterations", "0"]

@@ -216,7 +216,7 @@ Both entry points expect a game that is already in a stage:
 pixi run python -m training.evaluate --episodes 3 --policy evasive
 pixi run python -m training.collect --out runs/first.jsonl
 pixi run python -m training.train
-pixi run python -m training.evaluate_model --checkpoint runs/policy.pt
+pixi run python -m training.evaluate_model --checkpoint runs/policy/latest.pt
 ```
 
 Training writes a separate timestamped TensorBoard run below
@@ -300,7 +300,8 @@ start finds that menu and leaves it from `Return to Game` itself.
 - `training/train.py` - the two-phase DAgger/PPO entry point. It first decays the
   probability of executing teacher actions, then removes the teacher from the
   action path and optimizes on-policy reward. It atomically writes model,
-  optimizer and schema metadata to `runs/policy.pt` after every iteration, and
+  optimizer and schema metadata to `runs/policy/latest.pt` after every
+  iteration, and
   writes losses, rollout behavior, completed-episode results and run
   hyperparameters for TensorBoard. Both phases serialize a hidden staging
   checkpoint while the game is paused and promote it with one atomic rename
@@ -369,10 +370,19 @@ to spend one. `reset()` clears the annotation pairing and state for a genuinely
 independent trajectory; a PPO rollout boundary in the middle of the same game
 must not call it.
 
-Resume an interrupted run from its normal checkpoint with:
+Resume an interrupted run from its latest checkpoint with:
 
 ```powershell
-pixi run python -m training.train --resume --checkpoint runs/policy.pt
+pixi run python -m training.train --resume --checkpoint-dir runs/policy
+```
+
+The checkpoint directory also receives an immutable snapshot every 25 global
+iterations, at the DAgger-to-PPO boundary, and at the end of a finite run. To
+branch from one without colliding with the original run's immutable files, give
+`--resume` that checkpoint's path and select a fresh destination directory:
+
+```powershell
+pixi run python -m training.train --resume runs/policy/iteration-00000125-dagger-00000100-ppo-00000025.pt --checkpoint-dir runs/policy-retry
 ```
 
 The saved training hyperparameters are restored, while

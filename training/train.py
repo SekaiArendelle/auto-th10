@@ -9,6 +9,7 @@ import math
 import os
 import pathlib
 import random
+import shutil
 import statistics
 import sys
 
@@ -34,7 +35,9 @@ from .rl import (
     save_checkpoint,
 )
 
-DEFAULT_CHECKPOINT = pathlib.Path("runs/policy.pt")
+DEFAULT_CHECKPOINT_DIR = pathlib.Path("runs/policy")
+DEFAULT_CHECKPOINT = DEFAULT_CHECKPOINT_DIR / "latest.pt"
+DEFAULT_CHECKPOINT_EVERY = 25
 DEFAULT_TENSORBOARD_ROOT = pathlib.Path("runs/tensorboard")
 INPUT_BACKEND = "background"
 
@@ -92,15 +95,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-kl", type=_positive_float, default=None)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--checkpoint",
+        "--checkpoint-dir",
         type=pathlib.Path,
-        default=DEFAULT_CHECKPOINT,
-        help="checkpoint written atomically after every iteration",
+        default=DEFAULT_CHECKPOINT_DIR,
+        help="directory containing latest.pt and periodic checkpoint snapshots",
+    )
+    parser.add_argument(
+        "--checkpoint-every",
+        type=_nonnegative_int,
+        default=DEFAULT_CHECKPOINT_EVERY,
+        help="snapshot interval in global iterations; 0 disables periodic snapshots",
     )
     parser.add_argument(
         "--resume",
-        action="store_true",
-        help="resume complete training state from --checkpoint",
+        nargs="?",
+        const=pathlib.Path("latest.pt"),
+        type=pathlib.Path,
+        default=None,
+        metavar="CHECKPOINT",
+        help=(
+            "resume complete training state from latest.pt, or branch from an "
+            "explicit checkpoint path into a new --checkpoint-dir"
+        ),
     )
     parser.add_argument(
         "--tensorboard-dir",
@@ -122,12 +138,38 @@ def main(argv: list[str] | None = None) -> int:
         for argument in raw_argv
         if argument.startswith("--")
     }
+    latest_checkpoint = args.checkpoint_dir / "latest.pt"
     try:
-        checkpoint = load_checkpoint(args.checkpoint) if args.resume else None
+        resume_checkpoint = _resume_checkpoint_path(
+            args.checkpoint_dir, args.resume
+        )
+        if resume_checkpoint is None:
+            _require_empty_checkpoint_dir(args.checkpoint_dir)
+            checkpoint = None
+        else:
+            same_directory = (
+                resume_checkpoint.parent.resolve()
+                == args.checkpoint_dir.resolve()
+            )
+            if same_directory and resume_checkpoint.name != "latest.pt":
+                raise ValueError(
+                    "a historical checkpoint must resume into a new "
+                    "--checkpoint-dir"
+                )
+            if not same_directory:
+                _require_empty_checkpoint_dir(args.checkpoint_dir)
+            checkpoint = load_checkpoint(resume_checkpoint)
         if checkpoint is not None:
             state = _restore_training_state(
                 args, checkpoint, schedule_overrides=schedule_overrides
             )
+            if same_directory and resume_checkpoint.name == "latest.pt":
+                _recover_staged_snapshot(
+                    args.checkpoint_dir,
+                    iteration=state["iteration"],
+                    dagger_completed=state["dagger_completed"],
+                    ppo_completed=state["ppo_completed"],
+                )
     except (CheckpointError, OSError, ValueError, TypeError) as error:
         print(f"training was not resumed: {error}", file=sys.stderr)
         return 1
@@ -198,24 +240,36 @@ def main(argv: list[str] | None = None) -> int:
         env = MemoryGymEnv(feature_spec=feature_spec)
         features, _ = env.reset(seed=args.seed)
         teacher.reset()
-        pending_checkpoint = args.checkpoint.with_name(
-            f".{args.checkpoint.name}.pending"
-        )
+        pending_checkpoint = args.checkpoint_dir / ".latest.pt.pending"
         dagger_remaining = (
             0 if phase == "ppo" else args.dagger_iterations - dagger_completed
         )
         for _ in range(dagger_remaining):
             iteration += 1
             checkpoint_staged = False
+            staged_snapshot: pathlib.Path | None = None
 
             def finish_updates(
                 rollout: DaggerRollout,
                 updates: tuple[ImitationMetrics, ...],
             ) -> None:
-                nonlocal checkpoint_staged
+                nonlocal checkpoint_staged, staged_snapshot
                 del rollout
                 next_beta = max(args.beta_min, beta * args.beta_decay)
                 next_dagger_completed = dagger_completed + 1
+                staged_snapshot = _snapshot_path(
+                    args,
+                    iteration=iteration,
+                    dagger_completed=next_dagger_completed,
+                    ppo_completed=ppo_completed,
+                    phase_transition=(
+                        next_dagger_completed >= args.dagger_iterations
+                    ),
+                    training_complete=(
+                        next_dagger_completed >= args.dagger_iterations
+                        and args.ppo_iterations == 0
+                    ),
+                )
                 save_checkpoint(
                     pending_checkpoint,
                     iteration=iteration,
@@ -240,6 +294,9 @@ def main(argv: list[str] | None = None) -> int:
                         feature_size=feature_spec.size,
                         rng=rng,
                     ),
+                )
+                _stage_checkpoint_snapshot(
+                    pending_checkpoint, staged_snapshot
                 )
                 checkpoint_staged = True
                 _report_iteration(iteration, beta, len(buffer), updates)
@@ -269,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
                 after_updates=finish_updates,
             )
             if checkpoint_staged:
-                os.replace(pending_checkpoint, args.checkpoint)
+                _publish_checkpoint(
+                    pending_checkpoint,
+                    latest_checkpoint,
+                    snapshot=staged_snapshot,
+                )
             dagger_completed += 1
             rollout = result.rollout
             _log_dagger_rollout_metrics(writer, rollout, iteration=iteration)
@@ -301,16 +362,30 @@ def main(argv: list[str] | None = None) -> int:
         phase = "ppo"
         for _ in _remaining_iteration_range(ppo_completed, args.ppo_iterations):
             iteration += 1
+            staged_snapshot: pathlib.Path | None = None
 
             def prepare_ppo_updates(
                 rollout: PpoRollout,
                 updates: tuple[PpoMetrics, ...],
             ) -> None:
+                nonlocal staged_snapshot
                 del rollout, updates
                 # Flush the preceding iteration while the game is paused, then
                 # perform all expensive serialization into a staging path. A
                 # verified resume publishes it with one atomic rename.
                 writer.flush()
+                next_ppo_completed = ppo_completed + 1
+                staged_snapshot = _snapshot_path(
+                    args,
+                    iteration=iteration,
+                    dagger_completed=dagger_completed,
+                    ppo_completed=next_ppo_completed,
+                    phase_transition=False,
+                    training_complete=(
+                        args.ppo_iterations is not None
+                        and next_ppo_completed >= args.ppo_iterations
+                    ),
+                )
                 save_checkpoint(
                     pending_checkpoint,
                     iteration=iteration,
@@ -332,13 +407,20 @@ def main(argv: list[str] | None = None) -> int:
                         rng=rng,
                     ),
                 )
+                _stage_checkpoint_snapshot(
+                    pending_checkpoint, staged_snapshot
+                )
 
             def finish_ppo_updates(
                 rollout: PpoRollout,
                 updates: tuple[PpoMetrics, ...],
             ) -> None:
                 del rollout
-                os.replace(pending_checkpoint, args.checkpoint)
+                _publish_checkpoint(
+                    pending_checkpoint,
+                    latest_checkpoint,
+                    snapshot=staged_snapshot,
+                )
                 _report_ppo_iteration(iteration, updates)
                 _log_ppo_update_metrics(writer, iteration=iteration, updates=updates)
 
@@ -574,6 +656,107 @@ def _new_run_directory(root: pathlib.Path) -> pathlib.Path:
     return root / timestamp
 
 
+def _resume_checkpoint_path(
+    checkpoint_dir: pathlib.Path, resume: pathlib.Path | None
+) -> pathlib.Path | None:
+    if resume is None:
+        return None
+    return checkpoint_dir / resume if resume.parent == pathlib.Path(".") else resume
+
+
+def _require_empty_checkpoint_dir(checkpoint_dir: pathlib.Path) -> None:
+    if checkpoint_dir.is_file():
+        raise ValueError(f"checkpoint directory is a file: {checkpoint_dir}")
+    if checkpoint_dir.exists() and any(checkpoint_dir.glob("*.pt")):
+        raise ValueError(
+            f"checkpoint directory already contains checkpoints: {checkpoint_dir}; "
+            "use --resume or choose a new directory"
+        )
+
+
+def _snapshot_path(
+    args: argparse.Namespace,
+    *,
+    iteration: int,
+    dagger_completed: int,
+    ppo_completed: int,
+    phase_transition: bool,
+    training_complete: bool,
+) -> pathlib.Path | None:
+    periodic = (
+        args.checkpoint_every > 0 and iteration % args.checkpoint_every == 0
+    )
+    if not periodic and not phase_transition and not training_complete:
+        return None
+    return args.checkpoint_dir / _snapshot_name(
+        iteration=iteration,
+        dagger_completed=dagger_completed,
+        ppo_completed=ppo_completed,
+    )
+
+
+def _snapshot_name(
+    *, iteration: int, dagger_completed: int, ppo_completed: int
+) -> str:
+    return (
+        f"iteration-{iteration:08d}-dagger-{dagger_completed:08d}-"
+        f"ppo-{ppo_completed:08d}.pt"
+    )
+
+
+def _publish_checkpoint(
+    pending: pathlib.Path,
+    latest: pathlib.Path,
+    *,
+    snapshot: pathlib.Path | None,
+) -> None:
+    """Publish one verified checkpoint and its already-staged immutable copy."""
+    snapshot_pending: pathlib.Path | None = None
+    if snapshot is not None:
+        if snapshot.exists():
+            raise FileExistsError(f"checkpoint snapshot already exists: {snapshot}")
+        snapshot_pending = _snapshot_pending_path(snapshot)
+    # latest.pt is the recovery source of truth, so publish it first. A crash
+    # before the optional second rename may omit history but cannot roll back
+    # the resumable state.
+    os.replace(pending, latest)
+    if snapshot is not None and snapshot_pending is not None:
+        # The project is Windows-only. Unlike replace(), rename() refuses an
+        # existing destination there, preserving immutable snapshots.
+        os.rename(snapshot_pending, snapshot)
+
+
+def _stage_checkpoint_snapshot(
+    pending: pathlib.Path, snapshot: pathlib.Path | None
+) -> None:
+    if snapshot is None:
+        return
+    if snapshot.exists():
+        raise FileExistsError(f"checkpoint snapshot already exists: {snapshot}")
+    shutil.copyfile(pending, _snapshot_pending_path(snapshot))
+
+
+def _snapshot_pending_path(snapshot: pathlib.Path) -> pathlib.Path:
+    return snapshot.with_name(f".{snapshot.name}.pending")
+
+
+def _recover_staged_snapshot(
+    checkpoint_dir: pathlib.Path,
+    *,
+    iteration: int,
+    dagger_completed: int,
+    ppo_completed: int,
+) -> None:
+    snapshot = checkpoint_dir / _snapshot_name(
+        iteration=iteration,
+        dagger_completed=dagger_completed,
+        ppo_completed=ppo_completed,
+    )
+    pending = _snapshot_pending_path(snapshot)
+    if pending.exists() and not snapshot.exists():
+        os.rename(pending, snapshot)
+
+
 def _write_hyperparameters(writer: SummaryWriter, args: argparse.Namespace) -> None:
     values = {
         "batch_size": args.batch_size,
@@ -583,7 +766,8 @@ def _write_hyperparameters(writer: SummaryWriter, args: argparse.Namespace) -> N
         "bomb_fraction": args.bomb_fraction,
         "bomb_positive_weight": args.bomb_positive_weight,
         "buffer_capacity": args.buffer_capacity,
-        "checkpoint": str(args.checkpoint),
+        "checkpoint_dir": str(args.checkpoint_dir),
+        "checkpoint_every": args.checkpoint_every,
         "horizon": args.horizon,
         "input_backend": INPUT_BACKEND,
         "dagger_iterations": args.dagger_iterations,
