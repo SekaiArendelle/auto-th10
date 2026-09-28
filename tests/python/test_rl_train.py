@@ -2,12 +2,27 @@ import contextlib
 import io
 import itertools
 import json
+import pathlib
+import random
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+import torch
+
 from auto_th10 import NotInStage
 from training import train
+from training.rl import (
+    ActionSpec,
+    ActorCritic,
+    CheckpointError,
+    DaggerBuffer,
+    FeatureSpec,
+    ModelSpec,
+    load_checkpoint,
+    save_checkpoint,
+)
 
 
 class _FakeEnv:
@@ -43,6 +58,7 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertEqual(args.beta_min, 0.05)
         self.assertEqual(args.checkpoint, train.DEFAULT_CHECKPOINT)
         self.assertEqual(args.tensorboard_dir, train.DEFAULT_TENSORBOARD_ROOT)
+        self.assertFalse(args.resume)
 
     def test_iterations_counts_from_one_and_inf_has_no_last(self) -> None:
         self.assertEqual(list(train._iteration_range(3)), [1, 2, 3])
@@ -166,6 +182,177 @@ class TrainEntryPointTests(unittest.TestCase):
         self.assertEqual(save.call_args.args[0], pending)
         publish.assert_called_once_with(pending, train.DEFAULT_CHECKPOINT)
 
+    def test_resume_restores_state_and_runs_only_unfinished_ppo(self) -> None:
+        env = _FakeEnv()
+        env.raw_observation = SimpleNamespace(snapshot=SimpleNamespace(score=10))
+        rollout = SimpleNamespace(
+            samples=(),
+            terminated=False,
+            boundary_reward=0.0,
+            boundary_frames=0,
+            episode_frames=0,
+            resume_reward=0.0,
+            resume_frames=0,
+        )
+        result = SimpleNamespace(rollout=rollout, next_features="after-ppo")
+        updates = (
+            SimpleNamespace(
+                total=1.0,
+                policy=0.1,
+                value=2.0,
+                entropy=0.5,
+                approximate_kl=0.01,
+                clip_fraction=0.0,
+            ),
+        )
+
+        def run_ppo(*args: object, **kwargs: object) -> object:
+            del args
+            kwargs["prepare_updates"](rollout, updates)
+            kwargs["after_updates"](rollout, updates)
+            return result
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "policy.pt"
+            saved_args = train.build_parser().parse_args([])
+            saved_args.dagger_iterations = 2
+            saved_args.ppo_iterations = 2
+            feature_spec = FeatureSpec()
+            action_spec = ActionSpec()
+            model_spec = ModelSpec(feature_spec.size, hidden_sizes=(8,))
+            model = ActorCritic(model_spec, action_spec=action_spec)
+            optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+            rng = random.Random(7)
+            state = train._training_state(
+                saved_args,
+                phase="ppo",
+                iteration=3,
+                dagger_completed=2,
+                ppo_completed=1,
+                beta=0.5,
+                buffer=DaggerBuffer(),
+                feature_size=feature_spec.size,
+                rng=rng,
+            )
+            save_checkpoint(
+                path,
+                iteration=3,
+                beta=0.5,
+                feature_spec=feature_spec,
+                action_spec=action_spec,
+                model_spec=model_spec,
+                model=model,
+                optimizer=optimizer,
+                training_state=state,
+            )
+
+            with (
+                mock.patch.object(train, "MemoryGymEnv", return_value=env),
+                mock.patch.object(train, "run_dagger_iteration") as run_dagger,
+                mock.patch.object(
+                    train, "run_ppo_iteration", side_effect=run_ppo
+                ) as run_ppo_iteration,
+            ):
+                code = train.main(
+                    [
+                        "--resume",
+                        "--checkpoint",
+                        str(path),
+                    ]
+                )
+
+            restored = load_checkpoint(path)
+
+        self.assertEqual(code, 0)
+        run_dagger.assert_not_called()
+        self.assertEqual(run_ppo_iteration.call_count, 1)
+        self.assertEqual(restored.iteration, 4)
+        self.assertEqual(restored.beta, 0.5)
+        self.assertEqual(restored.training_state["dagger_completed"], 2)
+        self.assertEqual(restored.training_state["ppo_completed"], 2)
+        expected_python = random.Random()
+        expected_python.setstate(state["python_rng"])
+        resumed_python = random.Random()
+        resumed_python.setstate(restored.training_state["python_rng"])
+        self.assertEqual(expected_python.random(), resumed_python.random())
+        expected_dagger = random.Random()
+        expected_dagger.setstate(state["dagger_rng"])
+        resumed_dagger = random.Random()
+        resumed_dagger.setstate(restored.training_state["dagger_rng"])
+        self.assertEqual(expected_dagger.random(), resumed_dagger.random())
+        self.assertTrue(
+            torch.equal(
+                state["torch_rng"], restored.training_state["torch_rng"]
+            )
+        )
+
+    def test_resume_rejects_an_evaluation_only_checkpoint(self) -> None:
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "policy.pt"
+            feature_spec = FeatureSpec(max_enemies=1, max_bullets=1)
+            action_spec = ActionSpec()
+            model_spec = ModelSpec(feature_spec.size, hidden_sizes=(8,))
+            model = ActorCritic(model_spec, action_spec=action_spec)
+            optimizer = torch.optim.Adam(model.parameters())
+            save_checkpoint(
+                path,
+                iteration=0,
+                beta=1.0,
+                feature_spec=feature_spec,
+                action_spec=action_spec,
+                model_spec=model_spec,
+                model=model,
+                optimizer=optimizer,
+            )
+
+            with contextlib.redirect_stderr(stderr):
+                code = train.main(["--resume", "--checkpoint", str(path)])
+
+        self.assertEqual(code, 1)
+        self.assertIn("can only be evaluated", stderr.getvalue())
+
+    def test_resume_rejects_a_limit_below_completed_work(self) -> None:
+        saved_args = train.build_parser().parse_args([])
+        saved_args.dagger_iterations = 2
+        saved_args.ppo_iterations = 5
+        feature_spec = FeatureSpec()
+        state = train._training_state(
+            saved_args,
+            phase="ppo",
+            iteration=7,
+            dagger_completed=2,
+            ppo_completed=5,
+            beta=0.5,
+            buffer=DaggerBuffer(),
+            feature_size=feature_spec.size,
+            rng=random.Random(7),
+        )
+        checkpoint = SimpleNamespace(
+            training_state=state,
+            iteration=7,
+            beta=0.5,
+        )
+        cases = (
+            (["--dagger-iterations", "1"], {"--dagger-iterations"}, "DAgger"),
+            (
+                ["--dagger-iterations", "2", "--ppo-iterations", "3"],
+                {"--dagger-iterations", "--ppo-iterations"},
+                "PPO",
+            ),
+        )
+        for arguments, overrides, phase in cases:
+            with self.subTest(phase=phase):
+                requested = train.build_parser().parse_args(arguments)
+                with self.assertRaisesRegex(
+                    CheckpointError, f"{phase} iterations"
+                ):
+                    train._restore_training_state(
+                        requested,
+                        checkpoint,
+                        schedule_overrides=overrides,
+                    )
+
     def test_a_late_terminal_boundary_is_logged_after_resume(self) -> None:
         env = _FakeEnv()
         env.raw_observation = SimpleNamespace(snapshot=SimpleNamespace(score=123))
@@ -205,6 +392,7 @@ class TrainEntryPointTests(unittest.TestCase):
             mock.patch.object(train, "MemoryGymEnv", return_value=env),
             mock.patch.object(train, "run_dagger_iteration", side_effect=run_iteration),
             mock.patch.object(train, "save_checkpoint"),
+            mock.patch.object(train.os, "replace"),
         ):
             code = train.main(
                 ["--dagger-iterations", "1", "--ppo-iterations", "0"]

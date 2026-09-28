@@ -13,7 +13,8 @@ from .actions import ActionSpec
 from .features import FeatureSpec
 from .model import ActorCritic, ModelSpec
 
-CHECKPOINT_FORMAT_VERSION = 1
+CHECKPOINT_FORMAT_VERSION = 2
+_LEGACY_CHECKPOINT_FORMAT_VERSION = 1
 
 
 class CheckpointError(ValueError):
@@ -31,6 +32,7 @@ class LoadedCheckpoint:
     model_spec: ModelSpec
     model: ActorCritic
     optimizer_state_dict: dict[str, object]
+    training_state: dict[str, object] | None
 
 
 def save_checkpoint(
@@ -43,6 +45,7 @@ def save_checkpoint(
     model_spec: ModelSpec,
     model: ActorCritic,
     optimizer: torch.optim.Optimizer,
+    training_state: Mapping[str, object] | None = None,
 ) -> None:
     """Atomically save weights plus the schemas needed to interpret them."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,6 +59,7 @@ def save_checkpoint(
         "model_spec": asdict(model_spec),
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
+        "training_state": None if training_state is None else dict(training_state),
     }
     torch.save(payload, temporary)
     os.replace(temporary, path)
@@ -76,10 +80,11 @@ def load_checkpoint(
 
     payload = _require_mapping(raw, "checkpoint")
     version = _require_integer(payload.get("format_version"), "format_version")
-    if version != CHECKPOINT_FORMAT_VERSION:
+    if version not in (_LEGACY_CHECKPOINT_FORMAT_VERSION, CHECKPOINT_FORMAT_VERSION):
         raise CheckpointError(
             f"unsupported checkpoint format {version}; "
-            f"expected {CHECKPOINT_FORMAT_VERSION}"
+            f"expected {_LEGACY_CHECKPOINT_FORMAT_VERSION} or "
+            f"{CHECKPOINT_FORMAT_VERSION}"
         )
     iteration = _require_integer(payload.get("iteration"), "iteration")
     if iteration < 0:
@@ -99,6 +104,15 @@ def load_checkpoint(
     optimizer_state = _require_mapping(
         payload.get("optimizer_state_dict"), "optimizer_state_dict"
     )
+    training_state_value = payload.get("training_state")
+    if version == _LEGACY_CHECKPOINT_FORMAT_VERSION:
+        training_state = None
+    elif training_state_value is None:
+        training_state = None
+    else:
+        training_state = dict(
+            _require_mapping(training_state_value, "training_state")
+        )
     model = ActorCritic(model_spec, action_spec=action_spec).to(device)
     _validate_model_state(model_state, model)
     try:
@@ -114,6 +128,7 @@ def load_checkpoint(
         model_spec=model_spec,
         model=model,
         optimizer_state_dict=dict(optimizer_state),
+        training_state=training_state,
     )
 
 

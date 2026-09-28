@@ -206,11 +206,11 @@ pixi run python -m training.train
 pixi run python -m training.evaluate_model --checkpoint runs/policy.pt
 ```
 
-DAgger pauses the game while it updates and writes the checkpoint. PPO updates while paused, verifies the resume
-boundary, then publishes the one finalized checkpoint for that rollout. An exception during an update deliberately
-leaves the game paused; resume it manually with `Z` after dealing with the failure. Checkpoint loading supports evaluation, but training does not yet restore the
-aggregate DAgger buffer and RNG state, so rerunning `training.train` starts a new model and may overwrite a checkpoint
-with the same path. `evaluate_model --max-steps` is a single-episode diagnostic and cannot be combined with
+DAgger and PPO update and stage the checkpoint while paused, verify the resume boundary, then publish the finalized
+checkpoint for that rollout. An exception during an update deliberately
+leaves the game paused; resume it manually with `Z` after dealing with the failure. Checkpoint loading supports evaluation;
+resume complete training state with `training.train --resume --checkpoint runs/policy.pt`. Version-1 checkpoints are
+evaluation-only. `evaluate_model --max-steps` is a single-episode diagnostic and cannot be combined with
 `--episodes` greater than one.
 
 ## Coding conventions

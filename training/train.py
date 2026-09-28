@@ -1,7 +1,7 @@
 """Pretrain with online DAgger, then fine-tune with on-policy PPO."""
 
 import argparse
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 import itertools
 import json
@@ -18,6 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .rl import (
     ActionSpec,
     ActorCritic,
+    CheckpointError,
     DaggerBuffer,
     DaggerRollout,
     EvasiveTeacher,
@@ -27,6 +28,7 @@ from .rl import (
     ModelSpec,
     PpoMetrics,
     PpoRollout,
+    load_checkpoint,
     run_dagger_iteration,
     run_ppo_iteration,
     save_checkpoint,
@@ -96,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="checkpoint written atomically after every iteration",
     )
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume complete training state from --checkpoint",
+    )
+    parser.add_argument(
         "--tensorboard-dir",
         type=pathlib.Path,
         default=DEFAULT_TENSORBOARD_ROOT,
@@ -108,23 +115,72 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    if args.beta_min > args.beta:
-        raise SystemExit("--beta-min must not exceed --beta")
+    raw_argv = sys.argv[1:] if argv is None else argv
+    args = build_parser().parse_args(raw_argv)
+    schedule_overrides = {
+        argument.split("=", 1)[0]
+        for argument in raw_argv
+        if argument.startswith("--")
+    }
+    try:
+        checkpoint = load_checkpoint(args.checkpoint) if args.resume else None
+        if checkpoint is not None:
+            state = _restore_training_state(
+                args, checkpoint, schedule_overrides=schedule_overrides
+            )
+    except (CheckpointError, OSError, ValueError, TypeError) as error:
+        print(f"training was not resumed: {error}", file=sys.stderr)
+        return 1
 
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    rng = random.Random(args.seed)
-    feature_spec = FeatureSpec()
-    action_spec = ActionSpec()
-    model_spec = ModelSpec(feature_spec.size)
-    model = ActorCritic(model_spec, action_spec=action_spec)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    buffer = DaggerBuffer(args.buffer_capacity)
+    if checkpoint is None:
+        if args.beta_min > args.beta:
+            raise SystemExit("--beta-min must not exceed --beta")
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        rng = random.Random(args.seed)
+        feature_spec = FeatureSpec()
+        action_spec = ActionSpec()
+        model_spec = ModelSpec(feature_spec.size)
+        model = ActorCritic(model_spec, action_spec=action_spec)
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+        buffer = DaggerBuffer(args.buffer_capacity)
+        beta = args.beta
+        iteration = 0
+        dagger_completed = 0
+        ppo_completed = 0
+        phase = "dagger"
+    else:
+        feature_spec = checkpoint.feature_spec
+        action_spec = checkpoint.action_spec
+        model_spec = checkpoint.model_spec
+        model = checkpoint.model
+        model.train()
+        try:
+            optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+            optimizer.load_state_dict(checkpoint.optimizer_state_dict)
+            buffer = DaggerBuffer.from_state_dict(
+                state["buffer"],
+                feature_size=feature_spec.size,
+                movement_choices=action_spec.movement_choices,
+            )
+            if buffer.capacity != args.buffer_capacity:
+                raise ValueError(
+                    "DAgger buffer capacity disagrees with the saved config"
+                )
+            rng = random.Random()
+            random.setstate(state["python_rng"])
+            rng.setstate(state["dagger_rng"])
+            torch.set_rng_state(state["torch_rng"])
+        except (ValueError, TypeError, RuntimeError) as error:
+            print(f"training was not resumed: invalid training state: {error}", file=sys.stderr)
+            return 1
+        beta = state["beta"]
+        iteration = state["iteration"]
+        dagger_completed = state["dagger_completed"]
+        ppo_completed = state["ppo_completed"]
+        phase = state["phase"]
+
     teacher = EvasiveTeacher()
-    beta = args.beta
-    iteration = 0
-    phase = "dagger"
     episode = 0
     episode_reward = 0.0
     episode_frames = 0
@@ -142,23 +198,50 @@ def main(argv: list[str] | None = None) -> int:
         env = MemoryGymEnv(feature_spec=feature_spec)
         features, _ = env.reset(seed=args.seed)
         teacher.reset()
-        for _ in range(args.dagger_iterations):
+        pending_checkpoint = args.checkpoint.with_name(
+            f".{args.checkpoint.name}.pending"
+        )
+        dagger_remaining = (
+            0 if phase == "ppo" else args.dagger_iterations - dagger_completed
+        )
+        for _ in range(dagger_remaining):
             iteration += 1
+            checkpoint_staged = False
+
             def finish_updates(
                 rollout: DaggerRollout,
                 updates: tuple[ImitationMetrics, ...],
             ) -> None:
+                nonlocal checkpoint_staged
                 del rollout
+                next_beta = max(args.beta_min, beta * args.beta_decay)
+                next_dagger_completed = dagger_completed + 1
                 save_checkpoint(
-                    args.checkpoint,
+                    pending_checkpoint,
                     iteration=iteration,
-                    beta=beta,
+                    beta=next_beta,
                     feature_spec=feature_spec,
                     action_spec=action_spec,
                     model_spec=model_spec,
                     model=model,
                     optimizer=optimizer,
+                    training_state=_training_state(
+                        args,
+                        phase=(
+                            "ppo"
+                            if next_dagger_completed >= args.dagger_iterations
+                            else "dagger"
+                        ),
+                        iteration=iteration,
+                        dagger_completed=next_dagger_completed,
+                        ppo_completed=ppo_completed,
+                        beta=next_beta,
+                        buffer=buffer,
+                        feature_size=feature_spec.size,
+                        rng=rng,
+                    ),
                 )
+                checkpoint_staged = True
                 _report_iteration(iteration, beta, len(buffer), updates)
                 _log_update_metrics(
                     writer,
@@ -185,6 +268,9 @@ def main(argv: list[str] | None = None) -> int:
                 rng=rng,
                 after_updates=finish_updates,
             )
+            if checkpoint_staged:
+                os.replace(pending_checkpoint, args.checkpoint)
+            dagger_completed += 1
             rollout = result.rollout
             _log_dagger_rollout_metrics(writer, rollout, iteration=iteration)
             episode_reward, episode_frames, episode_bombs = _accumulate_episode(
@@ -213,10 +299,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 features = result.next_features
         phase = "ppo"
-        pending_checkpoint = args.checkpoint.with_name(
-            f".{args.checkpoint.name}.pending"
-        )
-        for _ in _iteration_range(args.ppo_iterations):
+        for _ in _remaining_iteration_range(ppo_completed, args.ppo_iterations):
             iteration += 1
 
             def prepare_ppo_updates(
@@ -231,12 +314,23 @@ def main(argv: list[str] | None = None) -> int:
                 save_checkpoint(
                     pending_checkpoint,
                     iteration=iteration,
-                    beta=0.0,
+                    beta=beta,
                     feature_spec=feature_spec,
                     action_spec=action_spec,
                     model_spec=model_spec,
                     model=model,
                     optimizer=optimizer,
+                    training_state=_training_state(
+                        args,
+                        phase="ppo",
+                        iteration=iteration,
+                        dagger_completed=dagger_completed,
+                        ppo_completed=ppo_completed + 1,
+                        beta=beta,
+                        buffer=buffer,
+                        feature_size=feature_spec.size,
+                        rng=rng,
+                    ),
                 )
 
             def finish_ppo_updates(
@@ -267,6 +361,7 @@ def main(argv: list[str] | None = None) -> int:
                 prepare_updates=prepare_ppo_updates,
                 after_updates=finish_ppo_updates,
             )
+            ppo_completed += 1
             rollout = result.rollout
             _log_ppo_rollout_metrics(writer, rollout, iteration=iteration)
             episode_reward, episode_frames, episode_bombs = _accumulate_ppo_episode(
@@ -519,6 +614,212 @@ def _write_hyperparameters(writer: SummaryWriter, args: argparse.Namespace) -> N
 def _iteration_range(limit: int | None) -> Iterable[int]:
     """Number the iterations from 1; `inf` (parsed to `None`) has no last one."""
     return itertools.count(1) if limit is None else range(1, limit + 1)
+
+
+def _remaining_iteration_range(completed: int, limit: int | None) -> Iterable[int]:
+    """Yield the unfinished ordinal numbers from a finite or unbounded phase."""
+    if limit is not None and completed > limit:
+        raise ValueError(
+            f"checkpoint has completed {completed} PPO iterations, "
+            f"more than the requested limit {limit}"
+        )
+    return (
+        itertools.count(completed + 1)
+        if limit is None
+        else range(completed + 1, limit + 1)
+    )
+
+
+_TRAINING_CONFIG_KEYS = (
+    "dagger_iterations",
+    "ppo_iterations",
+    "horizon",
+    "updates",
+    "batch_size",
+    "buffer_capacity",
+    "learning_rate",
+    "beta",
+    "beta_decay",
+    "beta_min",
+    "bomb_fraction",
+    "bomb_positive_weight",
+    "ppo_epochs",
+    "ppo_batch_size",
+    "gamma",
+    "gae_lambda",
+    "clip_ratio",
+    "value_clip",
+    "value_coefficient",
+    "entropy_coefficient",
+    "max_grad_norm",
+    "target_kl",
+    "seed",
+)
+
+
+def _training_state(
+    args: argparse.Namespace,
+    *,
+    phase: str,
+    iteration: int,
+    dagger_completed: int,
+    ppo_completed: int,
+    beta: float,
+    buffer: DaggerBuffer,
+    feature_size: int,
+    rng: random.Random,
+) -> dict[str, object]:
+    return {
+        "state_version": 1,
+        "phase": phase,
+        "iteration": iteration,
+        "dagger_completed": dagger_completed,
+        "ppo_completed": ppo_completed,
+        "beta": beta,
+        "config": {name: getattr(args, name) for name in _TRAINING_CONFIG_KEYS},
+        "buffer": buffer.state_dict(feature_size=feature_size),
+        "python_rng": random.getstate(),
+        "dagger_rng": rng.getstate(),
+        "torch_rng": torch.get_rng_state(),
+    }
+
+
+def _restore_training_state(
+    args: argparse.Namespace,
+    checkpoint: object,
+    *,
+    schedule_overrides: set[str],
+) -> dict[str, object]:
+    raw = getattr(checkpoint, "training_state", None)
+    if raw is None:
+        raise CheckpointError(
+            "checkpoint has no resumable training state; it can only be evaluated"
+        )
+    if not isinstance(raw, Mapping):
+        raise CheckpointError("training_state must be a mapping")
+    if raw.get("state_version") != 1:
+        raise CheckpointError("unsupported training state version")
+    phase = raw.get("phase")
+    if phase not in ("dagger", "ppo"):
+        raise CheckpointError("training phase must be dagger or ppo")
+    iteration = _state_nonnegative_integer(raw.get("iteration"), "iteration")
+    dagger_completed = _state_nonnegative_integer(
+        raw.get("dagger_completed"), "dagger_completed"
+    )
+    ppo_completed = _state_nonnegative_integer(
+        raw.get("ppo_completed"), "ppo_completed"
+    )
+    if iteration != dagger_completed + ppo_completed:
+        raise CheckpointError("training iteration counters are inconsistent")
+    if iteration != getattr(checkpoint, "iteration"):
+        raise CheckpointError("training iteration disagrees with checkpoint metadata")
+    beta = raw.get("beta")
+    if (
+        isinstance(beta, bool)
+        or not isinstance(beta, (int, float))
+        or not math.isfinite(float(beta))
+        or not 0.0 <= float(beta) <= 1.0
+    ):
+        raise CheckpointError("training beta must be between 0 and 1")
+    if float(beta) != getattr(checkpoint, "beta"):
+        raise CheckpointError("training beta disagrees with checkpoint metadata")
+    if phase == "dagger" and ppo_completed:
+        raise CheckpointError("a DAgger checkpoint cannot contain completed PPO work")
+
+    config = raw.get("config")
+    if not isinstance(config, Mapping):
+        raise CheckpointError("training config must be a mapping")
+    if set(config) != set(_TRAINING_CONFIG_KEYS):
+        raise CheckpointError("training config fields do not match this trainer")
+    _validate_saved_config(config)
+    for name in _TRAINING_CONFIG_KEYS:
+        option = f"--{name.replace('_', '-')}"
+        if (
+            name in ("dagger_iterations", "ppo_iterations")
+            and option in schedule_overrides
+        ):
+            continue
+        setattr(args, name, config[name])
+    if args.beta_min > args.beta:
+        raise CheckpointError("saved beta_min exceeds saved beta")
+    if dagger_completed > args.dagger_iterations:
+        raise CheckpointError(
+            "checkpoint has completed more DAgger iterations than requested"
+        )
+    if args.ppo_iterations is not None and ppo_completed > args.ppo_iterations:
+        raise CheckpointError(
+            "checkpoint has completed more PPO iterations than requested"
+        )
+
+    python_rng = raw.get("python_rng")
+    dagger_rng = raw.get("dagger_rng")
+    try:
+        random.Random().setstate(python_rng)
+        random.Random().setstate(dagger_rng)
+    except (TypeError, ValueError) as error:
+        raise CheckpointError(f"invalid Python RNG state: {error}") from error
+    torch_rng = raw.get("torch_rng")
+    if not isinstance(torch_rng, torch.Tensor) or torch_rng.dtype != torch.uint8:
+        raise CheckpointError("torch_rng must be a uint8 tensor")
+    if not isinstance(raw.get("buffer"), dict):
+        raise CheckpointError("training buffer must be a dictionary")
+    return {
+        "phase": phase,
+        "iteration": iteration,
+        "dagger_completed": dagger_completed,
+        "ppo_completed": ppo_completed,
+        "beta": float(beta),
+        "buffer": raw["buffer"],
+        "python_rng": python_rng,
+        "dagger_rng": dagger_rng,
+        "torch_rng": torch_rng,
+    }
+
+
+def _state_nonnegative_integer(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise CheckpointError(f"training {name} must be a non-negative integer")
+    return value
+
+
+def _validate_saved_config(config: Mapping[object, object]) -> None:
+    validators = {
+        "dagger_iterations": _positive_int,
+        "ppo_iterations": _nonnegative_iteration_limit,
+        "horizon": _positive_int,
+        "updates": _nonnegative_int,
+        "batch_size": _positive_int,
+        "buffer_capacity": _positive_int,
+        "learning_rate": _positive_float,
+        "beta": _probability,
+        "beta_decay": _probability,
+        "beta_min": _probability,
+        "bomb_fraction": _probability,
+        "bomb_positive_weight": _positive_float,
+        "ppo_epochs": _positive_int,
+        "ppo_batch_size": _positive_int,
+        "gamma": _probability,
+        "gae_lambda": _probability,
+        "clip_ratio": _positive_float,
+        "value_clip": _positive_float,
+        "value_coefficient": _nonnegative_float,
+        "entropy_coefficient": _nonnegative_float,
+        "max_grad_norm": _positive_float,
+    }
+    try:
+        for name, validator in validators.items():
+            value = config[name]
+            text = "inf" if name == "ppo_iterations" and value is None else str(value)
+            if validator(text) != value:
+                raise ValueError(f"{name} has a non-canonical value")
+        target_kl = config["target_kl"]
+        if target_kl is not None and _positive_float(str(target_kl)) != target_kl:
+            raise ValueError("target_kl has a non-canonical value")
+        seed = config["seed"]
+        if isinstance(seed, bool) or not isinstance(seed, int):
+            raise ValueError("seed must be an integer")
+    except (argparse.ArgumentTypeError, TypeError, ValueError) as error:
+        raise CheckpointError(f"invalid saved training config: {error}") from error
 
 
 def _positive_int(value: str) -> int:

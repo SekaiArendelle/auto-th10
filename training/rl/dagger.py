@@ -85,6 +85,133 @@ class DaggerBuffer:
     def extend(self, samples: Iterable[DaggerSample]) -> None:
         self._samples.extend(samples)
 
+    def state_dict(self, *, feature_size: int) -> dict[str, object]:
+        """Return a weights-only-safe representation in oldest-to-newest order."""
+        if isinstance(feature_size, bool) or not isinstance(feature_size, int):
+            raise TypeError("feature_size must be an integer")
+        if feature_size < 1:
+            raise ValueError("feature_size must be positive")
+        samples = tuple(self._samples)
+        if samples:
+            features = torch.as_tensor(
+                np.stack([sample.features for sample in samples]),
+                dtype=torch.float32,
+            )
+        else:
+            features = torch.empty((0, feature_size), dtype=torch.float32)
+
+        def actions(name: str) -> torch.Tensor:
+            return torch.tensor(
+                [
+                    (
+                        getattr(sample, name).movement,
+                        int(getattr(sample, name).bomb),
+                    )
+                    for sample in samples
+                ],
+                dtype=torch.int64,
+            ).reshape((-1, 2))
+
+        return {
+            "capacity": self.capacity,
+            "features": features,
+            "teacher_actions": actions("teacher_action"),
+            "learner_actions": actions("learner_action"),
+            "executed_actions": actions("executed_action"),
+            "used_teacher": torch.tensor(
+                [sample.used_teacher for sample in samples], dtype=torch.bool
+            ),
+            "rewards": torch.tensor(
+                [sample.reward for sample in samples], dtype=torch.float64
+            ),
+            "frames": torch.tensor(
+                [sample.frames for sample in samples], dtype=torch.int64
+            ),
+            "episode_frames": torch.tensor(
+                [sample.episode_frames for sample in samples], dtype=torch.int64
+            ),
+            "terminated": torch.tensor(
+                [sample.terminated for sample in samples], dtype=torch.bool
+            ),
+            "truncated": torch.tensor(
+                [sample.truncated for sample in samples], dtype=torch.bool
+            ),
+        }
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        state: object,
+        *,
+        feature_size: int,
+        movement_choices: int,
+    ) -> "DaggerBuffer":
+        """Reconstruct and validate a serialized aggregate buffer."""
+        if not isinstance(state, dict):
+            raise ValueError("DAgger buffer state must be a dictionary")
+        capacity = state.get("capacity")
+        if (
+            isinstance(capacity, bool)
+            or not isinstance(capacity, int)
+            or capacity < 1
+        ):
+            raise ValueError("DAgger buffer capacity must be a positive integer")
+        features = _buffer_tensor(
+            state, "features", torch.float32, (None, feature_size)
+        )
+        count = features.shape[0]
+        if count > capacity:
+            raise ValueError("DAgger buffer contains more samples than its capacity")
+        if not bool(torch.isfinite(features).all().item()):
+            raise ValueError("DAgger buffer features contain non-finite values")
+        action_tensors = tuple(
+            _buffer_tensor(state, name, torch.int64, (count, 2))
+            for name in ("teacher_actions", "learner_actions", "executed_actions")
+        )
+        for actions in action_tensors:
+            if count and (
+                bool((actions[:, 0] < 0).any().item())
+                or bool((actions[:, 0] >= movement_choices).any().item())
+                or bool(((actions[:, 1] != 0) & (actions[:, 1] != 1)).any().item())
+            ):
+                raise ValueError("DAgger buffer contains an invalid model action")
+        used_teacher = _buffer_tensor(state, "used_teacher", torch.bool, (count,))
+        rewards = _buffer_tensor(state, "rewards", torch.float64, (count,))
+        frames = _buffer_tensor(state, "frames", torch.int64, (count,))
+        episode_frames = _buffer_tensor(
+            state, "episode_frames", torch.int64, (count,)
+        )
+        terminated = _buffer_tensor(state, "terminated", torch.bool, (count,))
+        truncated = _buffer_tensor(state, "truncated", torch.bool, (count,))
+        if not bool(torch.isfinite(rewards).all().item()):
+            raise ValueError("DAgger buffer rewards contain non-finite values")
+        if bool((frames < 0).any().item()) or bool(
+            (episode_frames < 0).any().item()
+        ):
+            raise ValueError("DAgger buffer frame counts must not be negative")
+
+        buffer = cls(capacity)
+        restored: list[DaggerSample] = []
+        for index in range(count):
+            feature = features[index].cpu().numpy().copy()
+            feature.flags.writeable = False
+            restored.append(
+                DaggerSample(
+                    features=feature,
+                    teacher_action=_tensor_action(action_tensors[0], index),
+                    learner_action=_tensor_action(action_tensors[1], index),
+                    executed_action=_tensor_action(action_tensors[2], index),
+                    used_teacher=bool(used_teacher[index].item()),
+                    reward=float(rewards[index].item()),
+                    frames=int(frames[index].item()),
+                    episode_frames=int(episode_frames[index].item()),
+                    terminated=bool(terminated[index].item()),
+                    truncated=bool(truncated[index].item()),
+                )
+            )
+        buffer.extend(restored)
+        return buffer
+
     def sample(
         self,
         batch_size: int,
@@ -131,6 +258,30 @@ class DaggerBuffer:
             device=device,
         )
         return ImitationBatch(observations=observations, teacher_actions=actions)
+
+
+def _buffer_tensor(
+    state: dict[object, object],
+    name: str,
+    dtype: torch.dtype,
+    shape: tuple[int | None, ...],
+) -> torch.Tensor:
+    value = state.get(name)
+    if not isinstance(value, torch.Tensor) or value.dtype != dtype:
+        raise ValueError(f"DAgger buffer {name} must be a {dtype} tensor")
+    if value.ndim != len(shape) or any(
+        expected is not None and actual != expected
+        for actual, expected in zip(value.shape, shape, strict=True)
+    ):
+        raise ValueError(f"DAgger buffer {name} has an invalid shape")
+    return value
+
+
+def _tensor_action(actions: torch.Tensor, index: int) -> ModelAction:
+    return ModelAction(
+        movement=int(actions[index, 0].item()),
+        bomb=bool(actions[index, 1].item()),
+    )
 
 
 def collect_dagger_rollout(

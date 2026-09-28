@@ -13,6 +13,7 @@ from training.rl import (
     ActionSample,
     ActorCritic,
     DaggerBuffer,
+    DaggerSample,
     EvasiveTeacher,
     MemoryGymEnv,
     ModelAction,
@@ -141,6 +142,57 @@ class DaggerTests(unittest.TestCase):
 
         self.assertEqual(batch.observations.shape[0], 8)
         self.assertEqual(int(batch.teacher_actions[:, 1].sum().item()), 4)
+
+    def test_buffer_state_round_trips_every_sample_field(self) -> None:
+        features = np.asarray((0.25, -0.5, 1.0), dtype=np.float32)
+        features.flags.writeable = False
+        original = DaggerBuffer(capacity=5)
+        original.extend(
+            (
+                DaggerSample(
+                    features=features,
+                    teacher_action=ModelAction(1, True),
+                    learner_action=ModelAction(2, False),
+                    executed_action=ModelAction(1, True),
+                    used_teacher=True,
+                    reward=1.25,
+                    frames=2,
+                    episode_frames=30,
+                    terminated=False,
+                    truncated=True,
+                ),
+            )
+        )
+
+        state = original.state_dict(feature_size=3)
+        restored = DaggerBuffer.from_state_dict(
+            state, feature_size=3, movement_choices=17
+        )
+        restored_state = restored.state_dict(feature_size=3)
+
+        self.assertEqual(restored.capacity, 5)
+        self.assertEqual(len(restored), 1)
+        for name, value in state.items():
+            if isinstance(value, torch.Tensor):
+                self.assertTrue(torch.equal(value, restored_state[name]))
+            else:
+                self.assertEqual(value, restored_state[name])
+
+    def test_buffer_state_rejects_invalid_actions(self) -> None:
+        state = DaggerBuffer().state_dict(feature_size=3)
+        state["features"] = torch.zeros((1, 3), dtype=torch.float32)
+        for name in ("teacher_actions", "learner_actions", "executed_actions"):
+            state[name] = torch.tensor(((17, 0),), dtype=torch.int64)
+        for name in ("used_teacher", "terminated", "truncated"):
+            state[name] = torch.zeros(1, dtype=torch.bool)
+        state["rewards"] = torch.zeros(1, dtype=torch.float64)
+        state["frames"] = torch.ones(1, dtype=torch.int64)
+        state["episode_frames"] = torch.ones(1, dtype=torch.int64)
+
+        with self.assertRaisesRegex(ValueError, "invalid model action"):
+            DaggerBuffer.from_state_dict(
+                state, feature_size=3, movement_choices=17
+            )
 
     def test_iteration_pauses_for_updates_and_resumes_afterwards(self) -> None:
         session = self.dangerous_session()

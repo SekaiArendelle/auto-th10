@@ -271,7 +271,9 @@ start finds that menu and leaves it from `Return to Game` itself.
 - `training/rl/checkpoint.py` - atomic checkpoint writes and strict loading. A
   loader reconstructs all three specs from versioned metadata, verifies that the
   feature size and weight shapes agree, and returns the optimizer state without
-  executing arbitrary checkpoint code.
+  executing arbitrary checkpoint code. Current checkpoints also carry the
+  DAgger aggregate, phase counters, beta, hyperparameters and Python/DAgger/Torch
+  random states needed by `training.train --resume`.
 - `training/rl/imitation.py` - movement and bomb cross-entropy updates. Bomb
   positives are both sampled deliberately and weighted because the useful label
   is rare.
@@ -300,10 +302,10 @@ start finds that menu and leaves it from `Return to Game` itself.
   action path and optimizes on-policy reward. It atomically writes model,
   optimizer and schema metadata to `runs/policy.pt` after every iteration, and
   writes losses, rollout behavior, completed-episode results and run
-  hyperparameters for TensorBoard. PPO serializes a hidden staging checkpoint
-  while the game is paused and promotes it with one atomic rename only after the
-  resume boundary has been verified; a late terminal replaces the staged file
-  with its corrected update before that promotion.
+  hyperparameters for TensorBoard. Both phases serialize a hidden staging
+  checkpoint while the game is paused and promote it with one atomic rename
+  only after the resume boundary has been verified; a late PPO terminal replaces
+  the staged file with its corrected update before that promotion.
 - `training/evaluate_model.py` - deterministic checkpoint evaluation. The model
   alone controls movement and bomb; the evasive teacher only labels those same
   states so the report can include movement agreement and bomb precision/recall
@@ -367,8 +369,20 @@ to spend one. `reset()` clears the annotation pairing and state for a genuinely
 independent trajectory; a PPO rollout boundary in the middle of the same game
 must not call it.
 
-Open: tuning DAgger and PPO against a real stage, and restoring the aggregate
-buffer and RNG state for full training resume. Nothing here has been tuned with
-the game in front of it, and `BULLET_LEAD` and the laser box are still guesses. A
-name of its own for a record worth keeping also remains outside the scripted
-lifecycle.
+Resume an interrupted run from its normal checkpoint with:
+
+```powershell
+pixi run python -m training.train --resume --checkpoint runs/policy.pt
+```
+
+The saved training hyperparameters are restored, while
+`--dagger-iterations`/`--ppo-iterations` remain total phase limits. Version-1
+checkpoints remain valid for evaluation, but cannot resume because they contain
+neither the aggregate buffer nor RNG state. The live game is external state and
+is not checkpointed: resume attaches to its current stage position and starts a
+new rollout boundary there.
+
+Open: tuning DAgger and PPO against a real stage. Nothing here has been tuned
+with the game in front of it, and `BULLET_LEAD` and the laser box are still
+guesses. A name of its own for a record worth keeping also remains outside the
+scripted lifecycle.

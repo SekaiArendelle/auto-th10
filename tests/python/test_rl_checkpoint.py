@@ -16,7 +16,9 @@ from training.rl import (
 
 
 class CheckpointTests(unittest.TestCase):
-    def make_checkpoint(self, path: pathlib.Path) -> ActorCritic:
+    def make_checkpoint(
+        self, path: pathlib.Path, *, training_state: dict[str, object] | None = None
+    ) -> ActorCritic:
         feature_spec = FeatureSpec(max_enemies=1, max_bullets=1)
         action_spec = ActionSpec()
         model_spec = ModelSpec(feature_spec.size, hidden_sizes=(8,))
@@ -31,6 +33,7 @@ class CheckpointTests(unittest.TestCase):
             model_spec=model_spec,
             model=model,
             optimizer=optimizer,
+            training_state=training_state,
         )
         return model
 
@@ -46,8 +49,39 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(loaded.model_spec.hidden_sizes, (8,))
         self.assertEqual(loaded.model_spec.observation_size, loaded.feature_spec.size)
         self.assertFalse(loaded.model.training)
+        self.assertIsNone(loaded.training_state)
         for name, value in original.state_dict().items():
             self.assertTrue(torch.equal(value, loaded.model.state_dict()[name]))
+
+    def test_training_state_round_trips_with_weights_only_loading(self) -> None:
+        state = {
+            "state_version": 1,
+            "torch_rng": torch.get_rng_state(),
+            "python_rng": (3, (1, 2, 3), None),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "checkpoint.pt"
+            self.make_checkpoint(path, training_state=state)
+
+            loaded = load_checkpoint(path)
+
+        self.assertEqual(loaded.training_state["state_version"], 1)
+        self.assertTrue(
+            torch.equal(loaded.training_state["torch_rng"], state["torch_rng"])
+        )
+
+    def test_version_one_checkpoint_remains_evaluation_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "checkpoint.pt"
+            self.make_checkpoint(path)
+            payload = torch.load(path, weights_only=True)
+            payload["format_version"] = 1
+            payload.pop("training_state")
+            torch.save(payload, path)
+
+            loaded = load_checkpoint(path)
+
+        self.assertIsNone(loaded.training_state)
 
     def test_unknown_feature_schema_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
