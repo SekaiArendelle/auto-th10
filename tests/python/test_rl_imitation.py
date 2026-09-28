@@ -34,6 +34,7 @@ class ImitationLossTests(unittest.TestCase):
         )
 
         self.assertGreater(metrics.total, 0.0)
+        self.assertGreaterEqual(metrics.safe_movement_accuracy, metrics.movement_accuracy)
         self.assertTrue(
             any(
                 not torch.equal(old, new)
@@ -53,6 +54,20 @@ class ImitationLossTests(unittest.TestCase):
             imitation_loss(
                 self.model, self.observations, torch.zeros((6, 1), dtype=torch.long)
             )
+
+    def test_soft_movement_targets_accept_every_safe_action(self) -> None:
+        targets = torch.zeros((6, 17))
+        targets[:, 0] = 0.5
+        targets[:, 1] = 0.5
+
+        losses = imitation_loss(
+            self.model,
+            self.observations,
+            self.labels,
+            teacher_movement_probabilities=targets,
+        )
+
+        self.assertGreater(losses.movement.item(), 0.0)
 
 
 if __name__ == "__main__":

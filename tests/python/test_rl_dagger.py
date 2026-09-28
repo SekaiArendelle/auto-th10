@@ -153,6 +153,7 @@ class DaggerTests(unittest.TestCase):
                 DaggerSample(
                     features=features,
                     teacher_action=ModelAction(1, True),
+                    teacher_movement_probabilities=(1.0,) + (0.0,) * 16,
                     learner_action=ModelAction(2, False),
                     executed_action=ModelAction(1, True),
                     used_teacher=True,
@@ -184,6 +185,9 @@ class DaggerTests(unittest.TestCase):
         state["features"] = torch.zeros((1, 3), dtype=torch.float32)
         for name in ("teacher_actions", "learner_actions", "executed_actions"):
             state[name] = torch.tensor(((17, 0),), dtype=torch.int64)
+        state["teacher_movement_probabilities"] = torch.nn.functional.one_hot(
+            torch.tensor((0,)), num_classes=17
+        ).to(torch.float32)
         for name in ("used_teacher", "terminated", "truncated"):
             state[name] = torch.zeros(1, dtype=torch.bool)
         state["rewards"] = torch.zeros(1, dtype=torch.float64)
@@ -281,7 +285,7 @@ class DaggerTests(unittest.TestCase):
 
         self.assertTrue(result.rollout.terminated)
         self.assertFalse(result.rollout.truncated)
-        self.assertEqual(result.rollout.boundary_reward, -2.0)
+        self.assertEqual(result.rollout.boundary_reward, -5.0)
         self.assertGreaterEqual(result.rollout.boundary_frames, 0)
         self.assertFalse(session.paused)
         self.assertEqual(callback_pause_states, [False])
@@ -323,7 +327,7 @@ class DaggerTests(unittest.TestCase):
 
         self.assertTrue(result.rollout.terminated)
         self.assertFalse(result.rollout.truncated)
-        self.assertEqual(result.rollout.boundary_reward, -2.0)
+        self.assertEqual(result.rollout.boundary_reward, -5.0)
         self.assertGreaterEqual(result.rollout.boundary_frames, 0)
         self.assertFalse(session.paused)
         self.assertEqual(callback_pause_states, [True])

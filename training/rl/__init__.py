@@ -40,7 +40,7 @@ from .ppo import (
     update_ppo,
 )
 from .rewards import RewardBreakdown, RewardSpec, memory_reward
-from .teacher import EvasiveTeacher, Teacher
+from .teacher import EvasiveTeacher, Teacher, TeacherAnnotation
 
 __all__ = [
     "ACTION_SCHEMA_VERSION",
@@ -75,6 +75,7 @@ __all__ = [
     "RewardBreakdown",
     "RewardSpec",
     "Teacher",
+    "TeacherAnnotation",
     "decode_action",
     "collect_dagger_rollout",
     "collect_ppo_rollout",

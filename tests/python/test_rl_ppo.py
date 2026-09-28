@@ -155,6 +155,8 @@ class PpoTests(unittest.TestCase):
         env = self.make_env(session)
         features, _ = env.reset()
         model = ActorCritic(ModelSpec(features.size, hidden_sizes=(8,)))
+        with torch.no_grad():
+            model.movement_head.bias[3] = 100.0
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
         preparation_pause_states: list[bool] = []
         finalized_pause_states: list[bool] = []
@@ -196,6 +198,8 @@ class PpoTests(unittest.TestCase):
         env = self.make_env(session)
         features, _ = env.reset()
         model = ActorCritic(ModelSpec(features.size, hidden_sizes=(8,)))
+        with torch.no_grad():
+            model.movement_head.bias[3] = 100.0
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
         prepared_rollouts: list[PpoRollout] = []
         callback_rollouts: list[PpoRollout] = []

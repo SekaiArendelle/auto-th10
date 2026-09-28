@@ -21,7 +21,14 @@ class CheckpointTests(unittest.TestCase):
     ) -> ActorCritic:
         feature_spec = FeatureSpec(max_enemies=1, max_bullets=1)
         action_spec = ActionSpec()
-        model_spec = ModelSpec(feature_spec.size, hidden_sizes=(8,))
+        model_spec = ModelSpec(
+            feature_spec.size,
+            hidden_sizes=(8,),
+            architecture="entity_attention",
+            global_size=feature_spec.global_size,
+            entity_layout=feature_spec.entity_layout,
+            entity_size=16,
+        )
         model = ActorCritic(model_spec, action_spec=action_spec)
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
         save_checkpoint(
@@ -70,7 +77,7 @@ class CheckpointTests(unittest.TestCase):
             torch.equal(loaded.training_state["torch_rng"], state["torch_rng"])
         )
 
-    def test_version_one_checkpoint_remains_evaluation_compatible(self) -> None:
+    def test_old_checkpoint_format_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "checkpoint.pt"
             self.make_checkpoint(path)
@@ -79,9 +86,8 @@ class CheckpointTests(unittest.TestCase):
             payload.pop("training_state")
             torch.save(payload, path)
 
-            loaded = load_checkpoint(path)
-
-        self.assertIsNone(loaded.training_state)
+            with self.assertRaisesRegex(CheckpointError, "unsupported checkpoint"):
+                load_checkpoint(path)
 
     def test_unknown_feature_schema_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -102,7 +108,21 @@ class CheckpointTests(unittest.TestCase):
             payload["model_spec"]["observation_size"] += 1
             torch.save(payload, path)
 
-            with self.assertRaisesRegex(CheckpointError, "observation size"):
+            with self.assertRaisesRegex(CheckpointError, "observation.?size"):
+                load_checkpoint(path)
+
+    def test_entity_boundaries_must_match_the_feature_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "checkpoint.pt"
+            self.make_checkpoint(path)
+            payload = torch.load(path, weights_only=True)
+            payload["model_spec"]["global_size"] += 5
+            layout = list(payload["model_spec"]["entity_layout"])
+            layout[0] = (0, 5)
+            payload["model_spec"]["entity_layout"] = tuple(layout)
+            torch.save(payload, path)
+
+            with self.assertRaisesRegex(CheckpointError, "entity layout"):
                 load_checkpoint(path)
 
     def test_weight_shape_must_match_the_model_metadata(self) -> None:

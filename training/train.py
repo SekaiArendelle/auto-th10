@@ -81,8 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.05,
         help="lower bound for the teacher execution probability",
     )
-    parser.add_argument("--bomb-fraction", type=_probability, default=0.25)
-    parser.add_argument("--bomb-positive-weight", type=_positive_float, default=8.0)
+    parser.add_argument(
+        "--bomb-fraction",
+        type=_probability,
+        default=None,
+        help="optional bomb-positive sampling fraction; natural sampling by default",
+    )
+    parser.add_argument("--bomb-positive-weight", type=_positive_float, default=4.0)
     parser.add_argument("--ppo-epochs", type=_positive_int, default=10)
     parser.add_argument("--ppo-batch-size", type=_positive_int, default=256)
     parser.add_argument("--gamma", type=_probability, default=0.999)
@@ -182,7 +187,12 @@ def main(argv: list[str] | None = None) -> int:
         rng = random.Random(args.seed)
         feature_spec = FeatureSpec()
         action_spec = ActionSpec()
-        model_spec = ModelSpec(feature_spec.size)
+        model_spec = ModelSpec(
+            feature_spec.size,
+            architecture="entity_attention",
+            global_size=feature_spec.global_size,
+            entity_layout=feature_spec.entity_layout,
+        )
         model = ActorCritic(model_spec, action_spec=action_spec)
         optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
         buffer = DaggerBuffer(args.buffer_capacity)
@@ -222,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         ppo_completed = state["ppo_completed"]
         phase = state["phase"]
 
-    teacher = EvasiveTeacher()
+    teacher = EvasiveTeacher(feature_spec=feature_spec)
     episode = 0
     episode_reward = 0.0
     episode_frames = 0
@@ -520,6 +530,28 @@ def _log_update_metrics(
     writer.add_scalar(
         "loss/bomb", statistics.fmean(update.bomb for update in updates), iteration
     )
+    writer.add_scalar(
+        "train_minibatch/movement_accuracy",
+        statistics.fmean(
+            getattr(update, "movement_accuracy", math.nan) for update in updates
+        ),
+        iteration,
+    )
+    writer.add_scalar(
+        "train_minibatch/safe_movement_accuracy",
+        statistics.fmean(
+            getattr(update, "safe_movement_accuracy", math.nan)
+            for update in updates
+        ),
+        iteration,
+    )
+    writer.add_scalar(
+        "train_minibatch/bomb_accuracy",
+        statistics.fmean(
+            getattr(update, "bomb_accuracy", math.nan) for update in updates
+        ),
+        iteration,
+    )
 
 
 def _log_dagger_rollout_metrics(
@@ -541,9 +573,34 @@ def _log_dagger_rollout_metrics(
     if not samples:
         return
     writer.add_scalar(
-        "rollout/movement_agreement",
+        "validation/preupdate_movement_accuracy",
         statistics.fmean(
             sample.learner_action.movement == sample.teacher_action.movement
+            for sample in samples
+        ),
+        iteration,
+    )
+    writer.add_scalar(
+        "validation/preupdate_safe_movement_accuracy",
+        statistics.fmean(
+            getattr(
+                sample,
+                "teacher_movement_probabilities",
+                tuple(
+                    1.0 if movement == sample.teacher_action.movement else 0.0
+                    for movement in range(17)
+                ),
+            )[sample.learner_action.movement]
+            > 0.0
+            for sample in samples
+        ),
+        iteration,
+    )
+    writer.add_scalar(
+        "validation/preupdate_bomb_accuracy",
+        statistics.fmean(
+            getattr(sample.learner_action, "bomb", False)
+            == getattr(sample.teacher_action, "bomb", False)
             for sample in samples
         ),
         iteration,
@@ -854,7 +911,7 @@ def _training_state(
     rng: random.Random,
 ) -> dict[str, object]:
     return {
-        "state_version": 1,
+        "state_version": 2,
         "phase": phase,
         "iteration": iteration,
         "dagger_completed": dagger_completed,
@@ -881,7 +938,7 @@ def _restore_training_state(
         )
     if not isinstance(raw, Mapping):
         raise CheckpointError("training_state must be a mapping")
-    if raw.get("state_version") != 1:
+    if raw.get("state_version") != 2:
         raise CheckpointError("unsupported training state version")
     phase = raw.get("phase")
     if phase not in ("dagger", "ppo"):
@@ -978,7 +1035,6 @@ def _validate_saved_config(config: Mapping[object, object]) -> None:
         "beta": _probability,
         "beta_decay": _probability,
         "beta_min": _probability,
-        "bomb_fraction": _probability,
         "bomb_positive_weight": _positive_float,
         "ppo_epochs": _positive_int,
         "ppo_batch_size": _positive_int,
@@ -991,6 +1047,12 @@ def _validate_saved_config(config: Mapping[object, object]) -> None:
         "max_grad_norm": _positive_float,
     }
     try:
+        bomb_fraction = config["bomb_fraction"]
+        if (
+            bomb_fraction is not None
+            and _probability(str(bomb_fraction)) != bomb_fraction
+        ):
+            raise ValueError("bomb_fraction has a non-canonical value")
         for name, validator in validators.items():
             value = config[name]
             text = "inf" if name == "ppo_iterations" and value is None else str(value)

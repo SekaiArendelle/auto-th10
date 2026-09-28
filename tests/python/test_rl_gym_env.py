@@ -129,8 +129,8 @@ class MemoryGymEnvTests(unittest.TestCase):
         first = env.step(np.asarray([0, 1], dtype=np.int64))
         second = env.step(np.asarray([0, 1], dtype=np.int64))
 
-        self.assertAlmostEqual(first[1], -0.099)
-        self.assertAlmostEqual(second[1], -0.099)
+        self.assertAlmostEqual(first[1], -1.999)
+        self.assertAlmostEqual(second[1], -1.999)
         self.assertTrue(session.inputs[0] & Action.BOMB)
         self.assertFalse(session.inputs[1] & Action.BOMB)
         self.assertTrue(session.inputs[2] & Action.BOMB)
@@ -155,11 +155,11 @@ class MemoryGymEnvTests(unittest.TestCase):
             np.asarray([0, 0], dtype=np.int64)
         )
 
-        self.assertEqual(initial[6], 1.0)
+        self.assertEqual(initial[7], 1.0)
         self.assertEqual(bomb_info["delta_frames"], 4)
         self.assertEqual(bomb_info["frames_since_bomb"], 3)
         self.assertEqual(later_info["frames_since_bomb"], 7)
-        self.assertLess(after_bomb[6], later[6])
+        self.assertLess(after_bomb[7], later[7])
 
     def test_unavailable_bomb_does_not_start_bomb_history(self) -> None:
         session = FakeSession(
@@ -173,7 +173,7 @@ class MemoryGymEnvTests(unittest.TestCase):
         )
 
         self.assertIsNone(info["frames_since_bomb"])
-        self.assertEqual(observation[6], 1.0)
+        self.assertEqual(observation[7], 1.0)
 
     def test_unavailable_bomb_ages_existing_bomb_history(self) -> None:
         session = FakeSession(
@@ -194,7 +194,7 @@ class MemoryGymEnvTests(unittest.TestCase):
 
         self.assertEqual(available["frames_since_bomb"], 1)
         self.assertEqual(unavailable["frames_since_bomb"], 3)
-        self.assertGreater(observation[6], -1.0)
+        self.assertGreater(observation[7], -1.0)
 
     def test_action_repeat_accumulates_frames_but_penalizes_a_bomb_once(self) -> None:
         session = FakeSession(
@@ -215,10 +215,10 @@ class MemoryGymEnvTests(unittest.TestCase):
         self.assertFalse(terminated)
         self.assertFalse(truncated)
         self.assertEqual(info["delta_frames"], 4)
-        self.assertAlmostEqual(info["reward/score"], 0.3)
+        self.assertAlmostEqual(info["reward/score"], 0.0003)
         self.assertAlmostEqual(info["reward/survival"], 0.004)
-        self.assertAlmostEqual(info["reward/bomb"], -0.1)
-        self.assertAlmostEqual(reward, 0.204)
+        self.assertAlmostEqual(info["reward/invalid_bomb"], -2.0)
+        self.assertAlmostEqual(reward, -1.9957)
         self.assertTrue(session.inputs[-2] & Action.BOMB)
         self.assertFalse(session.inputs[-1] & Action.BOMB)
 
@@ -235,8 +235,8 @@ class MemoryGymEnvTests(unittest.TestCase):
 
         self.assertTrue(terminated)
         self.assertFalse(truncated)
-        self.assertEqual(reward, -2.0)
-        self.assertEqual(info["reward/game_over"], -1.0)
+        self.assertEqual(reward, -5.0)
+        self.assertEqual(info["reward/game_over"], -3.0)
         self.assertEqual(session.inputs[-1], Action.NONE)
 
     def test_step_limit_truncates_and_releases_input(self) -> None:
@@ -302,10 +302,10 @@ class MemoryGymEnvTests(unittest.TestCase):
         _, resume_info = env.resume()
 
         self.assertFalse(pause_info["terminated"])
-        self.assertEqual(pause_info["reward/score"], 1.0)
-        self.assertEqual(pause_info["reward/life"], -1.0)
+        self.assertEqual(pause_info["reward/score"], 0.001)
+        self.assertEqual(pause_info["reward/life"], -2.0)
         self.assertFalse(resume_info["terminated"])
-        self.assertEqual(resume_info["reward/score"], 1.0)
+        self.assertEqual(resume_info["reward/score"], 0.001)
 
     def test_pause_reports_a_run_that_ended_while_the_menu_opened(self) -> None:
         session = FakeSession(
@@ -321,9 +321,9 @@ class MemoryGymEnvTests(unittest.TestCase):
 
         self.assertTrue(env.observation_space.contains(terminal))
         self.assertTrue(info["terminated"])
-        self.assertEqual(info["reward/life"], -1.0)
-        self.assertEqual(info["reward/game_over"], -1.0)
-        self.assertEqual(info["reward/total"], -2.0)
+        self.assertEqual(info["reward/life"], -2.0)
+        self.assertEqual(info["reward/game_over"], -3.0)
+        self.assertEqual(info["reward/total"], -5.0)
         self.assertFalse(session.paused)
         with self.assertRaisesRegex(RuntimeError, "after the episode ends"):
             env.step(np.asarray([0, 0], dtype=np.int64))
@@ -347,9 +347,9 @@ class MemoryGymEnvTests(unittest.TestCase):
 
         self.assertTrue(env.observation_space.contains(observation))
         self.assertTrue(info["terminated"])
-        self.assertEqual(info["reward/life"], -1.0)
-        self.assertEqual(info["reward/game_over"], -1.0)
-        self.assertEqual(info["reward/total"], -2.0)
+        self.assertEqual(info["reward/life"], -2.0)
+        self.assertEqual(info["reward/game_over"], -3.0)
+        self.assertEqual(info["reward/total"], -5.0)
         self.assertFalse(session.paused)
         with self.assertRaisesRegex(RuntimeError, "after the episode ends"):
             env.step(np.asarray([0, 0], dtype=np.int64))

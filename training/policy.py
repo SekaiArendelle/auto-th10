@@ -164,6 +164,13 @@ class EvasivePolicy:
         bomb recommendation as a real bomb, so state advances separately through
         commit(). Ordinary decide() pairs the two calls immediately.
         """
+        action, _ = self.recommend_with_alternatives(observation)
+        return action
+
+    def recommend_with_alternatives(
+        self, observation: Observation
+    ) -> tuple[Action, tuple[Action, ...]]:
+        """Return the best action and every movement that avoids an earlier hit."""
         snapshot = observation.snapshot
         self._forget_an_old_cooldown(snapshot)
         decision = self._decisions + 1
@@ -197,16 +204,22 @@ class EvasivePolicy:
         survivors = [move for move in ranked if move[0] > self.horizon]
         if survivors:
             frames, _, _, action = max(survivors, key=lambda move: (move[1], move[2]))
+            acceptable = survivors
         else:
             frames, _, _, action = max(ranked, key=lambda move: move[:3])
+            acceptable = [move for move in ranked if move[0] == frames]
 
+        common = shoot_action(snapshot, decision)
         if (
             frames <= self.bomb_frames
             and self._cooldown == 0
             and snapshot.power >= BOMB_POWER_COST
         ):
-            return action | shoot_action(snapshot, decision) | Action.BOMB
-        return action | shoot_action(snapshot, decision)
+            common |= Action.BOMB
+        return (
+            action | common,
+            tuple(candidate[3] | common for candidate in acceptable),
+        )
 
     def commit(self, action: Action | int, *, frames: int = 1) -> None:
         """Advance decision state using the action that was actually executed."""

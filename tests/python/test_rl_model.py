@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import torch
 
-from training.rl import ActorCritic, ModelSpec
+from training.rl import ActorCritic, FeatureSpec, ModelSpec
 
 
 class ModelSpecTests(unittest.TestCase):
@@ -17,6 +17,46 @@ class ModelSpecTests(unittest.TestCase):
 
 
 class ActorCriticTests(unittest.TestCase):
+    def test_entity_attention_is_permutation_invariant_within_a_type(self) -> None:
+        features = FeatureSpec(
+            max_enemies=0, max_bullets=2, max_lasers=0, max_resources=0
+        )
+        spec = ModelSpec(
+            features.size,
+            hidden_sizes=(8,),
+            architecture="entity_attention",
+            global_size=features.global_size,
+            entity_layout=features.entity_layout,
+            entity_size=16,
+            attention_heads=4,
+            attention_queries=2,
+        )
+        model = ActorCritic(spec)
+        first = torch.zeros(features.size)
+        offset = features.global_size
+        first[offset : offset + features.bullet_size] = torch.arange(
+            features.bullet_size
+        )
+        first[offset + features.bullet_size : offset + 2 * features.bullet_size] = (
+            torch.arange(features.bullet_size) + 20
+        )
+        first[offset + features.bullet_size - 1] = 1.0
+        first[offset + 2 * features.bullet_size - 1] = 1.0
+        second = first.clone()
+        second[offset : offset + features.bullet_size] = first[
+            offset + features.bullet_size : offset + 2 * features.bullet_size
+        ]
+        second[offset + features.bullet_size : offset + 2 * features.bullet_size] = (
+            first[offset : offset + features.bullet_size]
+        )
+
+        left = model(first)
+        right = model(second)
+
+        self.assertTrue(torch.allclose(left.movement_logits, right.movement_logits))
+        self.assertTrue(torch.allclose(left.bomb_logits, right.bomb_logits))
+        self.assertTrue(torch.allclose(left.value, right.value))
+
     def test_forward_has_two_action_heads_and_one_value(self) -> None:
         model = ActorCritic(ModelSpec(5, hidden_sizes=(8,)))
 

@@ -7,17 +7,19 @@ from typing import NamedTuple
 
 from auto_th10 import Action, Snapshot
 
+from ..policy import BOMB_POWER_COST
+
 
 @dataclass(frozen=True, slots=True)
 class RewardSpec:
     """The scales and penalties that define the first PPO reward."""
 
     survival_per_frame: float = 0.001
-    score_scale: float = 1000.0
-    score_clip: float = 1.0
-    life_lost_penalty: float = 1.0
-    bomb_penalty: float = 0.1
-    game_over_penalty: float = 1.0
+    score_scale: float = 1_000_000.0
+    score_clip: float = 0.01
+    life_lost_penalty: float = 2.0
+    invalid_bomb_penalty: float = 2.0
+    game_over_penalty: float = 3.0
 
     def __post_init__(self) -> None:
         for name in (
@@ -25,7 +27,7 @@ class RewardSpec:
             "score_scale",
             "score_clip",
             "life_lost_penalty",
-            "bomb_penalty",
+            "invalid_bomb_penalty",
             "game_over_penalty",
         ):
             value = getattr(self, name)
@@ -45,7 +47,7 @@ class RewardBreakdown(NamedTuple):
     survival: float
     score: float
     life: float
-    bomb: float
+    invalid_bomb: float
     game_over: float
 
     @property
@@ -75,7 +77,12 @@ def memory_reward(
         survival=0.0 if current.game_over else spec.survival_per_frame * frame_count,
         score=score,
         life=-spec.life_lost_penalty * lives_lost,
-        bomb=-spec.bomb_penalty if action_value & int(Action.BOMB) else 0.0,
+        invalid_bomb=(
+            -spec.invalid_bomb_penalty
+            if action_value & int(Action.BOMB)
+            and previous.power < BOMB_POWER_COST
+            else 0.0
+        ),
         game_over=-spec.game_over_penalty if newly_game_over else 0.0,
     )
 

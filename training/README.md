@@ -252,31 +252,36 @@ start finds that menu and leaves it from `Return to Game` itself.
 - `training/dataset.py` - the versioned JSON representation of a transition,
   including every field in both memory-backed observations.
 - `training/collect.py` - writes those transitions as JSONL rows under `runs/`.
-- `training/rl/features.py` - feature schema version 2: a bounded fixed-length
+- `training/rl/features.py` - feature schema version 3: a bounded fixed-length
   tuple made from the memory snapshot plus measured frames since the model last
-  bombed. It keeps configurable nearest-entity prefixes and pads them with
-  explicit masks. A checkpoint records the schema version and entity limits that
-  define the tuple's exact layout.
+  bombed. It keeps larger configurable entity sets, ranks bullets by future
+  closest approach, adds explicit bomb availability and bullet-threat features,
+  and pads every entity type with validity masks. The teacher receives this same
+  bounded view instead of consulting information hidden from the model.
 - `training/rl/actions.py` - action schema version 1: 17 valid movement choices
   and a binary bomb choice. Shooting stays outside the learned action for now so
   combat can hold it and dialogue can pulse it without teaching the model that
   game-specific convention.
 - `training/rl/teacher.py` - the reusable DAgger annotation boundary. Its
   `EvasiveTeacher` projects `EvasivePolicy` decisions onto the model's movement
-  and bomb heads, then advances cooldown state from the learner action reported
-  through `feedback()` rather than from advice the learner may have ignored.
-- `training/rl/model.py` - one shared MLP trunk with independent 17-way movement,
-  binary bomb and scalar value heads. Imitation trains the action heads; PPO
-  subsequently trains all three without changing the checkpoint shape.
+  and bomb heads. Its preferred movement keeps half of the soft-label mass while
+  the other equally safe movements share the remainder. It advances cooldown
+  state from the learner action reported through
+  `feedback()` rather than from advice the learner may have ignored.
+- `training/rl/model.py` - type-specific shared entity encoders followed by
+  learned-query multi-head attention pooling. Global and pooled entity context
+  feed separate actor and critic MLPs; movement and bomb share the actor only.
+  Imitation trains the actor, while PPO subsequently trains the full network.
 - `training/rl/checkpoint.py` - atomic checkpoint writes and strict loading. A
   loader reconstructs all three specs from versioned metadata, verifies that the
   feature size and weight shapes agree, and returns the optimizer state without
   executing arbitrary checkpoint code. Current checkpoints also carry the
   DAgger aggregate, phase counters, beta, hyperparameters and Python/DAgger/Torch
   random states needed by `training.train --resume`.
-- `training/rl/imitation.py` - movement and bomb cross-entropy updates. Bomb
-  positives are both sampled deliberately and weighted because the useful label
-  is rare.
+- `training/rl/imitation.py` - soft movement cross-entropy over every safe
+  teacher alternative plus ordinary bomb cross-entropy. DAgger uses natural
+  sampling by default with only a modest positive bomb weight, and reports
+  preferred-action, safe-action and bomb accuracy separately.
 - `training/rl/dagger.py` - bounded aggregation, beta-mixture rollouts and the
   fixed-horizon pause/update/resume transaction. A failed update deliberately
   leaves the game paused; a collection failure stops the environment and releases
@@ -285,10 +290,10 @@ start finds that menu and leaves it from `Return to Game` itself.
   advantage normalization and shuffled PPO epochs. The update uses clipped
   policy and value objectives, entropy regularization, gradient clipping and an
   optional target-KL stop.
-- `training/rl/rewards.py` - the first shaped reward: small survival progress,
-  clipped positive score progress, and explicit penalties for a lost life, a
-  bomb and game over. Every term remains visible in the step metadata so a
-  training run can show what the policy is actually optimizing.
+- `training/rl/rewards.py` - survival progress, deliberately small clipped score
+  progress, and explicit penalties for a lost life and game over. A valid bomb
+  is free; requesting one below 20 power is heavily penalized. Every term remains
+  visible in the step metadata so a run shows what the policy is optimizing.
 - `training/rl/gym_env.py` - the Gymnasium adapter. Its observation is the
   bounded feature vector, its `MultiDiscrete([17, 2])` action is movement plus
   bomb, and it releases held input whenever an episode terminates or is
@@ -354,7 +359,8 @@ The teacher is queried alongside the learner rather than substituted for it:
 import numpy as np
 
 features, _ = env.reset()
-teacher_label = teacher.annotate(env.raw_observation)
+teacher_annotation = teacher.annotate(env.raw_observation)
+teacher_label = teacher_annotation.action
 learner_action = model.act(features)  # returns ModelAction
 features, reward, terminated, truncated, info = env.step(
     np.asarray([learner_action.movement, learner_action.bomb], dtype=np.int64)
@@ -371,6 +377,10 @@ independent trajectory; a PPO rollout boundary in the middle of the same game
 must not call it.
 
 Resume an interrupted run from its latest checkpoint with:
+
+Checkpoint format 3 is the first entity-attention format. Older MLP checkpoints
+are rejected rather than partially migrated because both their observation
+semantics and parameter graph differ.
 
 ```powershell
 pixi run python -m training.train --resume --checkpoint-dir runs/policy

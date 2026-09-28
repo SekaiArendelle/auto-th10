@@ -26,7 +26,13 @@ class EvasiveTeacherTests(unittest.TestCase):
 
         label = teacher.annotate(observe(make_snapshot(player=PLAYER)))
 
-        self.assertEqual(label, ModelAction(movement=0, bomb=False))
+        self.assertEqual(label.action, ModelAction(movement=0, bomb=False))
+        self.assertAlmostEqual(sum(label.movement_probabilities), 1.0)
+        self.assertEqual(label.movement_probabilities[label.movement], 0.5)
+        self.assertGreater(
+            sum(probability > 0.0 for probability in label.movement_probabilities),
+            1,
+        )
         teacher.feedback(label, frames=1)
 
     def test_it_projects_the_evasive_bomb_onto_the_model_heads(self) -> None:

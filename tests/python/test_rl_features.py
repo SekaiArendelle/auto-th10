@@ -63,6 +63,7 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
             0.0,
             1.0 / 3.0,
             0.5,
+            1.0,
             0.4,
             0.0,
             1.0,
@@ -81,6 +82,9 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
             8.0 / 480.0,
             2.0 / 16.0,
             -4.0 / 16.0,
+            1.0 / 12.0,
+            math.sqrt(180.0) / math.hypot(400.0, 480.0),
+            1.0,
             1.0,
             -10.0 / 400.0,
             -20.0 / 480.0,
@@ -117,9 +121,9 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
         ).size
 
         self.assertAlmostEqual(features[bullet_offset], 10.0 / 400.0)
-        self.assertEqual(features[bullet_offset + 6], 1.0)
-        self.assertAlmostEqual(features[bullet_offset + 7], -20.0 / 400.0)
-        self.assertEqual(features[bullet_offset + 13], 1.0)
+        self.assertEqual(features[bullet_offset + 9], 1.0)
+        self.assertAlmostEqual(features[bullet_offset + 10], -20.0 / 400.0)
+        self.assertEqual(features[bullet_offset + 19], 1.0)
 
     def test_missing_entities_are_zero_padded_with_a_clear_mask(self) -> None:
         spec = FeatureSpec(max_enemies=1, max_bullets=2, max_lasers=0, max_resources=0)
@@ -133,8 +137,8 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
             max_resources=0,
         ).size
 
-        self.assertEqual(features[bullet_offset + 6], 1.0)
-        self.assertEqual(features[bullet_offset + 7 : bullet_offset + 14], (0.0,) * 7)
+        self.assertEqual(features[bullet_offset + 9], 1.0)
+        self.assertEqual(features[bullet_offset + 10 : bullet_offset + 20], (0.0,) * 10)
 
     def test_lasers_are_ranked_by_their_body_instead_of_their_origin(self) -> None:
         spec = FeatureSpec(max_enemies=0, max_bullets=0, max_lasers=1, max_resources=0)
@@ -170,7 +174,7 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
             )
         )
 
-        self.assertGreater(many[8], one[8])
+        self.assertGreater(many[9], one[9])
 
     def test_bomb_history_distinguishes_a_recent_bomb_from_a_ready_one(self) -> None:
         encoder = MemoryFeatureEncoder(
@@ -187,9 +191,26 @@ class MemoryFeatureEncoderTests(unittest.TestCase):
         recent = encoder.encode(observation, frames_since_bomb=0)
         ready = encoder.encode(observation, frames_since_bomb=240)
 
-        self.assertEqual(never[6], 1.0)
-        self.assertEqual(recent[6], -1.0)
-        self.assertEqual(ready[6], 1.0)
+        self.assertEqual(never[7], 1.0)
+        self.assertEqual(recent[7], -1.0)
+        self.assertEqual(ready[7], 1.0)
+
+    def test_threatening_bullets_are_kept_ahead_of_nearer_safe_ones(self) -> None:
+        spec = FeatureSpec(
+            max_enemies=0, max_bullets=1, max_lasers=0, max_resources=0
+        )
+        snapshot = make_snapshot(
+            player=(0.0, 240.0),
+            enemy_bullets=(
+                make_bullet(5.0, 240.0, dx=5.0, dy=0.0),
+                make_bullet(100.0, 240.0, dx=-10.0, dy=0.0),
+            ),
+        )
+
+        features = MemoryFeatureEncoder(spec).encode(observe(snapshot))
+
+        self.assertAlmostEqual(features[spec.global_size], 100.0 / 400.0)
+        self.assertEqual(features[spec.global_size + 8], 1.0)
 
     def test_bomb_history_rejects_invalid_ages(self) -> None:
         encoder = MemoryFeatureEncoder()

@@ -11,7 +11,7 @@ from typing import Protocol
 import numpy as np
 import torch
 
-from .actions import ModelAction
+from .actions import ActionSpec, ModelAction
 from .gym_env import MemoryGymEnv
 from .imitation import ImitationMetrics, update_imitation
 from .model import ActionSample, ActorCritic
@@ -34,6 +34,7 @@ class Learner(Protocol):
 class DaggerSample:
     features: np.ndarray
     teacher_action: ModelAction
+    teacher_movement_probabilities: tuple[float, ...]
     learner_action: ModelAction
     executed_action: ModelAction
     used_teacher: bool
@@ -59,6 +60,7 @@ class DaggerRollout:
 class ImitationBatch:
     observations: torch.Tensor
     teacher_actions: torch.Tensor
+    teacher_movement_probabilities: torch.Tensor
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +118,10 @@ class DaggerBuffer:
             "capacity": self.capacity,
             "features": features,
             "teacher_actions": actions("teacher_action"),
+            "teacher_movement_probabilities": torch.tensor(
+                [sample.teacher_movement_probabilities for sample in samples],
+                dtype=torch.float32,
+            ).reshape((-1, ActionSpec().movement_choices)),
             "learner_actions": actions("learner_action"),
             "executed_actions": actions("executed_action"),
             "used_teacher": torch.tensor(
@@ -168,6 +174,29 @@ class DaggerBuffer:
             _buffer_tensor(state, name, torch.int64, (count, 2))
             for name in ("teacher_actions", "learner_actions", "executed_actions")
         )
+        movement_probabilities = _buffer_tensor(
+            state,
+            "teacher_movement_probabilities",
+            torch.float32,
+            (count, movement_choices),
+        )
+        if count and (
+            not bool(torch.isfinite(movement_probabilities).all().item())
+            or bool((movement_probabilities < 0.0).any().item())
+            or not bool(
+                torch.allclose(
+                    movement_probabilities.sum(dim=1),
+                    torch.ones(
+                        count,
+                        dtype=movement_probabilities.dtype,
+                        device=movement_probabilities.device,
+                    ),
+                    atol=1e-5,
+                    rtol=1e-5,
+                )
+            )
+        ):
+            raise ValueError("DAgger buffer contains invalid movement probabilities")
         for actions in action_tensors:
             if count and (
                 bool((actions[:, 0] < 0).any().item())
@@ -199,6 +228,9 @@ class DaggerBuffer:
                 DaggerSample(
                     features=feature,
                     teacher_action=_tensor_action(action_tensors[0], index),
+                    teacher_movement_probabilities=tuple(
+                        float(value) for value in movement_probabilities[index].tolist()
+                    ),
                     learner_action=_tensor_action(action_tensors[1], index),
                     executed_action=_tensor_action(action_tensors[2], index),
                     used_teacher=bool(used_teacher[index].item()),
@@ -216,7 +248,7 @@ class DaggerBuffer:
         self,
         batch_size: int,
         *,
-        bomb_fraction: float = 0.25,
+        bomb_fraction: float | None = None,
         rng: random.Random,
         device: torch.device | str = "cpu",
     ) -> ImitationBatch:
@@ -224,7 +256,7 @@ class DaggerBuffer:
             raise TypeError("batch_size must be an integer")
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
-        if (
+        if bomb_fraction is not None and (
             isinstance(bomb_fraction, bool)
             or not isinstance(bomb_fraction, Real)
             or not math.isfinite(float(bomb_fraction))
@@ -233,16 +265,23 @@ class DaggerBuffer:
             raise ValueError("bomb_fraction must be in [0, 1]")
         if not self._samples:
             raise RuntimeError("cannot sample an empty DAgger buffer")
-        positives = [sample for sample in self._samples if sample.teacher_action.bomb]
-        negatives = [sample for sample in self._samples if not sample.teacher_action.bomb]
-        positive_count = round(batch_size * bomb_fraction) if positives else 0
-        negative_count = batch_size - positive_count if negatives else 0
-        if not negatives:
-            positive_count = batch_size
-        elif not positives:
-            negative_count = batch_size
-        chosen = rng.choices(positives, k=positive_count)
-        chosen.extend(rng.choices(negatives, k=negative_count))
+        if bomb_fraction is None:
+            chosen = rng.choices(tuple(self._samples), k=batch_size)
+        else:
+            positives = [
+                sample for sample in self._samples if sample.teacher_action.bomb
+            ]
+            negatives = [
+                sample for sample in self._samples if not sample.teacher_action.bomb
+            ]
+            positive_count = round(batch_size * bomb_fraction) if positives else 0
+            negative_count = batch_size - positive_count if negatives else 0
+            if not negatives:
+                positive_count = batch_size
+            elif not positives:
+                negative_count = batch_size
+            chosen = rng.choices(positives, k=positive_count)
+            chosen.extend(rng.choices(negatives, k=negative_count))
         rng.shuffle(chosen)
         observations = torch.as_tensor(
             np.stack([sample.features for sample in chosen]),
@@ -257,7 +296,16 @@ class DaggerBuffer:
             dtype=torch.long,
             device=device,
         )
-        return ImitationBatch(observations=observations, teacher_actions=actions)
+        movement_probabilities = torch.tensor(
+            [sample.teacher_movement_probabilities for sample in chosen],
+            dtype=torch.float32,
+            device=device,
+        )
+        return ImitationBatch(
+            observations=observations,
+            teacher_actions=actions,
+            teacher_movement_probabilities=movement_probabilities,
+        )
 
 
 def _buffer_tensor(
@@ -293,7 +341,7 @@ def collect_dagger_rollout(
     steps: int,
     beta: float,
     rng: random.Random,
-    deterministic_learner: bool = False,
+    deterministic_learner: bool = True,
 ) -> DaggerRollout:
     """Collect learner states, teacher labels and the β-mixture's real actions."""
     if isinstance(steps, bool) or not isinstance(steps, int):
@@ -313,7 +361,8 @@ def collect_dagger_rollout(
     truncated = False
     try:
         for _ in range(steps):
-            teacher_action = teacher.annotate(env.raw_observation)
+            annotation = teacher.annotate(env.raw_observation)
+            teacher_action = annotation.action
             learner_sample = learner.act(current, deterministic=deterministic_learner)
             learner_action = learner_sample.action
             use_teacher = beta >= 1.0 or (beta > 0.0 and rng.random() < beta)
@@ -332,6 +381,9 @@ def collect_dagger_rollout(
                 DaggerSample(
                     features=stored_features,
                     teacher_action=teacher_action,
+                    teacher_movement_probabilities=(
+                        annotation.movement_probabilities
+                    ),
                     learner_action=learner_action,
                     executed_action=executed_action,
                     used_teacher=use_teacher,
@@ -376,8 +428,8 @@ def run_dagger_iteration(
     beta: float,
     batch_size: int,
     update_steps: int,
-    bomb_fraction: float = 0.25,
-    bomb_positive_weight: float = 8.0,
+    bomb_fraction: float | None = None,
+    bomb_positive_weight: float = 4.0,
     rng: random.Random,
     after_updates: Callable[
         [DaggerRollout, tuple[ImitationMetrics, ...]], None
@@ -435,6 +487,9 @@ def run_dagger_iteration(
                     optimizer,
                     batch.observations,
                     batch.teacher_actions,
+                    teacher_movement_probabilities=(
+                        batch.teacher_movement_probabilities
+                    ),
                     bomb_positive_weight=bomb_positive_weight,
                 )
             )

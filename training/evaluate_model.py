@@ -34,10 +34,15 @@ class ModelEpisodeResult:
     bomb_false_positives: int
     bomb_false_negatives: int
     bomb_true_negatives: int
+    safe_movement_matches: int = 0
 
     @property
     def movement_agreement(self) -> float:
         return self.movement_matches / self.steps if self.steps else 0.0
+
+    @property
+    def safe_movement_agreement(self) -> float:
+        return self.safe_movement_matches / self.steps if self.steps else 0.0
 
     @property
     def bomb_precision(self) -> float | None:
@@ -96,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
                 evaluate_episode(
                     env,
                     checkpoint.model,
-                    EvasiveTeacher(),
+                    EvasiveTeacher(feature_spec=checkpoint.feature_spec),
                     episode=episode,
                 )
             )
@@ -120,6 +125,7 @@ def evaluate_episode(
     total_reward = 0.0
     bombs = 0
     movement_matches = 0
+    safe_movement_matches = 0
     bomb_true_positives = 0
     bomb_false_positives = 0
     bomb_false_negatives = 0
@@ -128,7 +134,8 @@ def evaluate_episode(
     truncated = False
     try:
         while not terminated and not truncated:
-            teacher_action = teacher.annotate(env.raw_observation)
+            annotation = teacher.annotate(env.raw_observation)
+            teacher_action = annotation.action
             model_action = learner.act(features, deterministic=True).action
             next_features, reward, terminated, truncated, info = env.step(
                 np.asarray(
@@ -142,6 +149,9 @@ def evaluate_episode(
             bombs += int(model_action.bomb)
             movement_matches += int(
                 model_action.movement == teacher_action.movement
+            )
+            safe_movement_matches += int(
+                annotation.movement_probabilities[model_action.movement] > 0.0
             )
             if model_action.bomb and teacher_action.bomb:
                 bomb_true_positives += 1
@@ -167,6 +177,7 @@ def evaluate_episode(
         ending="game_over" if terminated else "step_limit",
         bombs=bombs,
         movement_matches=movement_matches,
+        safe_movement_matches=safe_movement_matches,
         bomb_true_positives=bomb_true_positives,
         bomb_false_positives=bomb_false_positives,
         bomb_false_negatives=bomb_false_negatives,
@@ -183,6 +194,7 @@ def report(results: list[ModelEpisodeResult], *, as_json: bool) -> None:
                 f"episode {result.episode}: score {result.score}, "
                 f"{result.frames} frames, {result.bombs} bombs, {result.ending}; "
                 f"movement agreement {result.movement_agreement:.1%}, "
+                f"safe movement {result.safe_movement_agreement:.1%}, "
                 f"bomb precision {_ratio_text(result.bomb_precision)}, "
                 f"recall {_ratio_text(result.bomb_recall)}"
             )
@@ -196,6 +208,7 @@ def report(results: list[ModelEpisodeResult], *, as_json: bool) -> None:
             f"{summary['episodes']} episode(s): best {summary['best_score']}, "
             f"mean {summary['mean_score']:.1f}, "
             f"movement agreement {summary['movement_agreement']:.1%}, "
+            f"safe movement {summary['safe_movement_agreement']:.1%}, "
             f"bomb precision {_ratio_text(summary['bomb_precision'])}, "
             f"recall {_ratio_text(summary['bomb_recall'])}"
         )
@@ -211,6 +224,7 @@ def to_dict(result: ModelEpisodeResult) -> dict[str, object]:
         "ending": result.ending,
         "bombs": result.bombs,
         "movement_agreement": result.movement_agreement,
+        "safe_movement_agreement": result.safe_movement_agreement,
         "bomb_precision": result.bomb_precision,
         "bomb_recall": result.bomb_recall,
         "bomb_true_positives": result.bomb_true_positives,
@@ -223,6 +237,7 @@ def to_dict(result: ModelEpisodeResult) -> dict[str, object]:
 def summarize(results: list[ModelEpisodeResult]) -> dict[str, int | float | None]:
     steps = sum(result.steps for result in results)
     movement_matches = sum(result.movement_matches for result in results)
+    safe_movement_matches = sum(result.safe_movement_matches for result in results)
     true_positives = sum(result.bomb_true_positives for result in results)
     false_positives = sum(result.bomb_false_positives for result in results)
     false_negatives = sum(result.bomb_false_negatives for result in results)
@@ -235,6 +250,9 @@ def summarize(results: list[ModelEpisodeResult]) -> dict[str, int | float | None
         "mean_score": statistics.fmean(scores),
         "bombs": sum(result.bombs for result in results),
         "movement_agreement": movement_matches / steps if steps else 0.0,
+        "safe_movement_agreement": (
+            safe_movement_matches / steps if steps else 0.0
+        ),
         "bomb_precision": true_positives / predicted if predicted else None,
         "bomb_recall": true_positives / positive if positive else None,
     }

@@ -133,7 +133,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 "reward/survival": total.survival,
                 "reward/score": total.score,
                 "reward/life": total.life,
-                "reward/bomb": total.bomb,
+                "reward/invalid_bomb": total.invalid_bomb,
                 "reward/game_over": total.game_over,
                 "reward/total": total.total,
             }
@@ -176,7 +176,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 "reward/survival": total.survival,
                 "reward/score": total.score,
                 "reward/life": total.life,
-                "reward/bomb": total.bomb,
+                "reward/invalid_bomb": total.invalid_bomb,
                 "reward/game_over": total.game_over,
                 "reward/total": total.total,
             }
@@ -213,7 +213,7 @@ class MemoryGymEnv(gym.Env[np.ndarray, np.ndarray]):
                 "reward/survival": total.survival,
                 "reward/score": total.score,
                 "reward/life": total.life,
-                "reward/bomb": total.bomb,
+                "reward/invalid_bomb": total.invalid_bomb,
                 "reward/game_over": total.game_over,
                 "reward/total": total.total,
             }

@@ -13,7 +13,7 @@ class RewardSpecTests(unittest.TestCase):
             {"score_scale": 0.0},
             {"score_clip": -1.0},
             {"life_lost_penalty": math.inf},
-            {"bomb_penalty": True},
+            {"invalid_bomb_penalty": True},
         ):
             with self.subTest(kwargs=kwargs), self.assertRaises((TypeError, ValueError)):
                 RewardSpec(**kwargs)
@@ -22,28 +22,31 @@ class RewardSpecTests(unittest.TestCase):
 class MemoryRewardTests(unittest.TestCase):
     def test_reward_terms_are_independently_visible(self) -> None:
         reward = memory_reward(
-            make_snapshot(score=100, lives=3),
+            make_snapshot(score=100, lives=3, power=0),
             make_snapshot(score=700, lives=2),
             Action.RIGHT | Action.BOMB,
             frames=4,
         )
 
         self.assertAlmostEqual(reward.survival, 0.004)
-        self.assertAlmostEqual(reward.score, 0.6)
-        self.assertEqual(reward.life, -1.0)
-        self.assertEqual(reward.bomb, -0.1)
+        self.assertAlmostEqual(reward.score, 0.0006)
+        self.assertEqual(reward.life, -2.0)
+        self.assertEqual(reward.invalid_bomb, -2.0)
         self.assertEqual(reward.game_over, 0.0)
-        self.assertAlmostEqual(reward.total, -0.496)
+        self.assertAlmostEqual(reward.total, -3.9954)
 
     def test_score_gain_is_clipped_and_score_loss_is_not_punished(self) -> None:
         clipped = memory_reward(
-            make_snapshot(score=0), make_snapshot(score=5000), Action.NONE, frames=1
+            make_snapshot(score=0),
+            make_snapshot(score=50_000),
+            Action.NONE,
+            frames=1,
         )
         reset = memory_reward(
             make_snapshot(score=5000), make_snapshot(score=0), Action.NONE, frames=1
         )
 
-        self.assertEqual(clipped.score, 1.0)
+        self.assertEqual(clipped.score, 0.01)
         self.assertEqual(reset.score, 0.0)
 
     def test_game_over_replaces_survival_and_is_only_penalized_once(self) -> None:
@@ -61,8 +64,25 @@ class MemoryRewardTests(unittest.TestCase):
         )
 
         self.assertEqual(first.survival, 0.0)
-        self.assertEqual(first.game_over, -1.0)
+        self.assertEqual(first.game_over, -3.0)
         self.assertEqual(repeated.game_over, 0.0)
+
+    def test_only_a_bomb_request_without_enough_power_is_penalized(self) -> None:
+        invalid = memory_reward(
+            make_snapshot(power=19),
+            make_snapshot(power=19),
+            Action.BOMB,
+            frames=1,
+        )
+        valid = memory_reward(
+            make_snapshot(power=20),
+            make_snapshot(power=0),
+            Action.BOMB,
+            frames=1,
+        )
+
+        self.assertEqual(invalid.invalid_bomb, -2.0)
+        self.assertEqual(valid.invalid_bomb, 0.0)
 
     def test_frames_must_be_a_positive_integer(self) -> None:
         for frames in (0, -1):

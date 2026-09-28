@@ -13,8 +13,7 @@ from .actions import ActionSpec
 from .features import FeatureSpec
 from .model import ActorCritic, ModelSpec
 
-CHECKPOINT_FORMAT_VERSION = 2
-_LEGACY_CHECKPOINT_FORMAT_VERSION = 1
+CHECKPOINT_FORMAT_VERSION = 3
 
 
 class CheckpointError(ValueError):
@@ -80,11 +79,10 @@ def load_checkpoint(
 
     payload = _require_mapping(raw, "checkpoint")
     version = _require_integer(payload.get("format_version"), "format_version")
-    if version not in (_LEGACY_CHECKPOINT_FORMAT_VERSION, CHECKPOINT_FORMAT_VERSION):
+    if version != CHECKPOINT_FORMAT_VERSION:
         raise CheckpointError(
             f"unsupported checkpoint format {version}; "
-            f"expected {_LEGACY_CHECKPOINT_FORMAT_VERSION} or "
-            f"{CHECKPOINT_FORMAT_VERSION}"
+            f"expected {CHECKPOINT_FORMAT_VERSION}"
         )
     iteration = _require_integer(payload.get("iteration"), "iteration")
     if iteration < 0:
@@ -97,6 +95,13 @@ def load_checkpoint(
         raise CheckpointError(
             "model observation size does not match the checkpoint feature schema"
         )
+    if model_spec.architecture == "entity_attention" and (
+        model_spec.global_size != feature_spec.global_size
+        or model_spec.entity_layout != feature_spec.entity_layout
+    ):
+        raise CheckpointError(
+            "model entity layout does not match the checkpoint feature schema"
+        )
 
     model_state = _require_mapping(
         payload.get("model_state_dict"), "model_state_dict"
@@ -105,9 +110,7 @@ def load_checkpoint(
         payload.get("optimizer_state_dict"), "optimizer_state_dict"
     )
     training_state_value = payload.get("training_state")
-    if version == _LEGACY_CHECKPOINT_FORMAT_VERSION:
-        training_state = None
-    elif training_state_value is None:
+    if training_state_value is None:
         training_state = None
     else:
         training_state = dict(
@@ -186,6 +189,15 @@ def _load_model_spec(value: object) -> ModelSpec:
             data["hidden_sizes"] = tuple(data["hidden_sizes"])
         except TypeError as error:
             raise CheckpointError("invalid model_spec: hidden_sizes is not iterable") from error
+    if "entity_layout" in data:
+        try:
+            data["entity_layout"] = tuple(
+                tuple(entry) for entry in data["entity_layout"]
+            )
+        except TypeError as error:
+            raise CheckpointError(
+                "invalid model_spec: entity_layout is not iterable"
+            ) from error
     try:
         return ModelSpec(**data)
     except (TypeError, ValueError) as error:

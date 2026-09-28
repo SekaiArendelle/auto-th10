@@ -607,7 +607,7 @@ class TrainEntryPointTests(unittest.TestCase):
                 mock.call("rollout/reward", 1.0, 7),
                 mock.call("rollout/steps", 2, 7),
                 mock.call("rollout/frames", 3, 7),
-                mock.call("rollout/movement_agreement", 0.5, 7),
+                mock.call("validation/preupdate_movement_accuracy", 0.5, 7),
                 mock.call("rollout/bomb_label_rate", 0.5, 7),
                 mock.call("rollout/teacher_execution_rate", 0.5, 7),
             ),

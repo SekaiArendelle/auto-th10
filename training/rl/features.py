@@ -1,27 +1,29 @@
 """A fixed, versioned feature layout for the memory-backed observation.
 
-Snapshots contain variable-length entity tuples.  The first model protocol
-sorts each tuple by distance from the player, keeps a configured prefix, and
-pads the rest with zeroes plus an explicit validity mask.  It is deliberately a
-plain tuple rather than a NumPy array, so this module needs nothing from the
+Snapshots contain variable-length entity tuples. The schema keeps configured
+bounded sets, prioritizing bullets by future closest approach and other objects
+by distance, then pads them with zeroes plus an explicit validity mask. It is a
+plain tuple rather than a NumPy array, so this module stays independent of the
 training stack; the Gymnasium adapter is the only module that imports it.
 """
 
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NamedTuple, TypeVar
 
-from auto_th10 import EnemyBullet, EnemyLaser, Observation, Point, Rect
+from auto_th10 import EnemyBullet, EnemyLaser, Observation, Point, Rect, Snapshot
 
 from ..dodging import BOMB_COOLDOWN_FRAMES, laser_box
+from ..policy import BOMB_POWER_COST
 
-FEATURE_SCHEMA_VERSION = 2
+FEATURE_SCHEMA_VERSION = 3
 
 HALF_WIDTH = 200.0
 FIELD_WIDTH = 400.0
 FIELD_HEIGHT = 480.0
 BULLET_SPEED_SCALE = 16.0
+THREAT_HORIZON = 12.0
 SCORE_SCALE = 1_000_000.0
 POWER_SCALE = 100.0
 LIVES_SCALE = 5.0
@@ -32,6 +34,7 @@ class _GlobalFeatures(NamedTuple):
     player_y: float
     score: float
     power: float
+    bomb_available: float
     lives: float
     game_over: float
     frames_since_bomb: float
@@ -56,6 +59,9 @@ class _BulletFeatures(NamedTuple):
     height: float
     velocity_x: float
     velocity_y: float
+    closest_time: float
+    closest_distance: float
+    approaching: float
     valid: float
 
 
@@ -82,10 +88,10 @@ Entity = TypeVar("Entity")
 class FeatureSpec:
     """Entity limits and schema version stored alongside a model checkpoint."""
 
-    max_enemies: int = 8
-    max_bullets: int = 24
-    max_lasers: int = 4
-    max_resources: int = 8
+    max_enemies: int = 16
+    max_bullets: int = 64
+    max_lasers: int = 8
+    max_resources: int = 16
     schema_version: int = FEATURE_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -108,14 +114,44 @@ class FeatureSpec:
             )
 
     @property
+    def global_size(self) -> int:
+        return len(_GlobalFeatures._fields)
+
+    @property
+    def enemy_size(self) -> int:
+        return len(_EnemyFeatures._fields)
+
+    @property
+    def bullet_size(self) -> int:
+        return len(_BulletFeatures._fields)
+
+    @property
+    def laser_size(self) -> int:
+        return len(_LaserFeatures._fields)
+
+    @property
+    def resource_size(self) -> int:
+        return len(_ResourceFeatures._fields)
+
+    @property
+    def entity_layout(self) -> tuple[tuple[int, int], ...]:
+        """Entity limits and widths in their serialized feature order."""
+        return (
+            (self.max_enemies, self.enemy_size),
+            (self.max_bullets, self.bullet_size),
+            (self.max_lasers, self.laser_size),
+            (self.max_resources, self.resource_size),
+        )
+
+    @property
     def size(self) -> int:
         """Number of scalar values produced by this specification."""
         return (
-            len(_GlobalFeatures._fields)
-            + self.max_enemies * len(_EnemyFeatures._fields)
-            + self.max_bullets * len(_BulletFeatures._fields)
-            + self.max_lasers * len(_LaserFeatures._fields)
-            + self.max_resources * len(_ResourceFeatures._fields)
+            self.global_size
+            + self.max_enemies * self.enemy_size
+            + self.max_bullets * self.bullet_size
+            + self.max_lasers * self.laser_size
+            + self.max_resources * self.resource_size
         )
 
 
@@ -131,30 +167,31 @@ class MemoryFeatureEncoder:
         *,
         frames_since_bomb: int | None = None,
     ) -> tuple[float, ...]:
-        """Return bounded scalars in deterministic nearest-entity order."""
-        snapshot = observation.snapshot
+        """Return bounded scalars in deterministic relevance order."""
+        source = observation.snapshot
+        snapshot = perceived_snapshot(source, self.spec)
         player = snapshot.player
-        features = list(
-            _GlobalFeatures(
-                player_x=_clip(player.x / HALF_WIDTH),
-                player_y=_clip(2.0 * player.y / FIELD_HEIGHT - 1.0),
-                score=_positive_squash(snapshot.score, SCORE_SCALE),
-                power=_positive_squash(snapshot.power, POWER_SCALE),
-                lives=_clip(snapshot.lives / LIVES_SCALE),
-                game_over=1.0 if snapshot.game_over else 0.0,
-                frames_since_bomb=_bomb_history_feature(frames_since_bomb),
-                enemy_count=_count_feature(len(snapshot.enemies), self.spec.max_enemies),
-                bullet_count=_count_feature(
-                    len(snapshot.enemy_bullets), self.spec.max_bullets
-                ),
-                laser_count=_count_feature(
-                    len(snapshot.enemy_lasers), self.spec.max_lasers
-                ),
-                resource_count=_count_feature(
-                    len(snapshot.resources), self.spec.max_resources
-                ),
-            )
+        globals_ = _GlobalFeatures(
+            player_x=_clip(player.x / HALF_WIDTH),
+            player_y=_clip(2.0 * player.y / FIELD_HEIGHT - 1.0),
+            score=_positive_squash(snapshot.score, SCORE_SCALE),
+            power=_positive_squash(snapshot.power, POWER_SCALE),
+            bomb_available=1.0 if snapshot.power >= BOMB_POWER_COST else 0.0,
+            lives=_clip(snapshot.lives / LIVES_SCALE),
+            game_over=1.0 if snapshot.game_over else 0.0,
+            frames_since_bomb=_bomb_history_feature(frames_since_bomb),
+            enemy_count=_count_feature(len(source.enemies), self.spec.max_enemies),
+            bullet_count=_count_feature(
+                len(source.enemy_bullets), self.spec.max_bullets
+            ),
+            laser_count=_count_feature(
+                len(source.enemy_lasers), self.spec.max_lasers
+            ),
+            resource_count=_count_feature(
+                len(source.resources), self.spec.max_resources
+            ),
         )
+        features = list(globals_)
         features.extend(
             _encode_entities(
                 snapshot.enemies,
@@ -170,7 +207,8 @@ class MemoryFeatureEncoder:
                 self.spec.max_bullets,
                 player,
                 _encode_bullet,
-                len(_BulletFeatures._fields),
+                self.spec.bullet_size,
+                key=_bullet_threat_key,
             )
         )
         features.extend(
@@ -195,6 +233,43 @@ class MemoryFeatureEncoder:
         return tuple(features)
 
 
+def perceived_observation(
+    observation: Observation, spec: FeatureSpec
+) -> Observation:
+    """Apply the model's entity limits before either model or teacher decides."""
+    return Observation(snapshot=perceived_snapshot(observation.snapshot, spec))
+
+
+def perceived_snapshot(snapshot: Snapshot, spec: FeatureSpec) -> Snapshot:
+    """Select the same bounded entity view used by the feature encoder."""
+    player = snapshot.player
+    return replace(
+        snapshot,
+        enemies=tuple(
+            _nearest(snapshot.enemies, spec.max_enemies, player, _distance_key)
+        ),
+        enemy_bullets=tuple(
+            _nearest(
+                snapshot.enemy_bullets,
+                spec.max_bullets,
+                player,
+                _bullet_threat_key,
+            )
+        ),
+        enemy_lasers=tuple(
+            _nearest(
+                snapshot.enemy_lasers,
+                spec.max_lasers,
+                player,
+                _laser_distance_key,
+            )
+        ),
+        resources=tuple(
+            _nearest(snapshot.resources, spec.max_resources, player, _distance_key)
+        ),
+    )
+
+
 def _encode_entities(
     entities: Sequence[Entity],
     limit: int,
@@ -211,6 +286,15 @@ def _encode_entities(
     return features
 
 
+def _nearest(
+    entities: Sequence[Entity],
+    limit: int,
+    player: Point,
+    key: Callable[[Entity, Point], tuple[float, float, float]],
+) -> Sequence[Entity]:
+    return sorted(entities, key=lambda entity: key(entity, player))[:limit]
+
+
 def _distance_key(entity: Point, player: Point) -> tuple[float, float, float]:
     return ((entity.x - player.x) ** 2 + (entity.y - player.y) ** 2, entity.x, entity.y)
 
@@ -221,6 +305,14 @@ def _laser_distance_key(laser: EnemyLaser, player: Point) -> tuple[float, float,
     distance_x = max(0.0, abs(player.x - centre_x) - half_width)
     distance_y = max(0.0, abs(player.y - centre_y) - half_height)
     return (distance_x**2 + distance_y**2, laser.x, laser.y)
+
+
+def _bullet_threat_key(
+    bullet: EnemyBullet, player: Point
+) -> tuple[float, float, float]:
+    """Rank bullets by future closest approach, then its urgency."""
+    time, distance, _ = _closest_approach(bullet, player)
+    return (distance, time, _distance_key(bullet, player)[0])
 
 
 def _encode_rect(rect: Rect, player: Point) -> _EnemyFeatures:
@@ -234,6 +326,7 @@ def _encode_rect(rect: Rect, player: Point) -> _EnemyFeatures:
 
 
 def _encode_bullet(bullet: EnemyBullet, player: Point) -> _BulletFeatures:
+    closest_time, closest_distance, approaching = _closest_approach(bullet, player)
     return _BulletFeatures(
         relative_x=_relative_x(bullet.x, player.x),
         relative_y=_relative_y(bullet.y, player.y),
@@ -241,8 +334,30 @@ def _encode_bullet(bullet: EnemyBullet, player: Point) -> _BulletFeatures:
         height=_positive_clip(bullet.height / FIELD_HEIGHT),
         velocity_x=_clip(bullet.dx / BULLET_SPEED_SCALE),
         velocity_y=_clip(bullet.dy / BULLET_SPEED_SCALE),
+        closest_time=_positive_clip(closest_time / THREAT_HORIZON),
+        closest_distance=_positive_clip(
+            closest_distance / math.hypot(FIELD_WIDTH, FIELD_HEIGHT)
+        ),
+        approaching=1.0 if approaching else -1.0,
         valid=1.0,
     )
+
+
+def _closest_approach(
+    bullet: EnemyBullet, player: Point
+) -> tuple[float, float, bool]:
+    relative_x = bullet.x - player.x
+    relative_y = bullet.y - player.y
+    speed_squared = bullet.dx**2 + bullet.dy**2
+    dot = relative_x * bullet.dx + relative_y * bullet.dy
+    approaching = speed_squared > 0.0 and dot < 0.0
+    if speed_squared == 0.0:
+        time = THREAT_HORIZON
+    else:
+        time = min(THREAT_HORIZON, max(0.0, -dot / speed_squared))
+    closest_x = relative_x + bullet.dx * time
+    closest_y = relative_y + bullet.dy * time
+    return time, math.hypot(closest_x, closest_y), approaching
 
 
 def _encode_laser(laser: EnemyLaser, player: Point) -> _LaserFeatures:
